@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────
+# MOASYS-Vault .gitignore
+# ─────────────────────────────────────────────
+ 
+# Output files — generated locally by running scan.py, not stored in the repo.
+# Each user generates their own from their own media library.
+output/
+ 
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+ 
+# Virtual environments
+.venv/
+venv/
+env/
+ 
+# macOS
+.DS_Store
+ 
+# Windows
+Thumbs.db
+desktop.ini
+ 
+# VS Code
+.vscode/
