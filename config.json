@@ -1,41 +1,121 @@
 {
   "_notes": {
-    "root_path": "Set this to the path of your media folder. Windows: 'Z:\\\\Movies' or '\\\\\\\\NAS-NAME\\\\Movies' | macOS: '/Volumes/Movies' | Linux: '/mnt/nas/Movies'"
+    "root_path": "Set this to the path of your media folder. Windows: 'Z:\\\\Movies' or '\\\\\\\\NAS-NAME\\\\Movies' | macOS: '/Volumes/Movies' | Linux: '/mnt/nas/Movies'",
+    "primary_extension": "The expected primary file format(s). Files in any other format will be flagged in warnings.json. Always use a list e.g. [\".mp4\"] or [\".mp4\", \".mkv\"]",
+    "media_folders": "List of subfolders to scan. \"name\" is the actual folder name on disk, \"tag\" is the label used in output. Rename either to match your setup."
   },
   "movies": {
-    "root_path": "Z:\\Movies",
-    "quality_folders": [
-      { "folder": "UHD",       "tag": "UHD" },
-      { "folder": "HD",        "tag": "HD" },
-      { "folder": "SD",        "tag": "SD" },
-      { "folder": "Other UHD", "tag": "Other UHD" },
-      { "folder": "Other HD",  "tag": "Other HD" },
-      { "folder": "Other SD",  "tag": "Other SD" }
+    "root_path": "M:\\Movies",
+    "primary_extension": [
+      ".mp4"
     ],
-    "primary_extension": ".mp4",
-    "video_extensions": [".mp4", ".mkv", ".avi", ".m4v", ".mov", ".wmv", ".ts", ".m2ts"]
+    "video_extensions": [
+      ".mp4",
+      ".mkv",
+      ".avi",
+      ".m4v",
+      ".mov",
+      ".wmv",
+      ".ts",
+      ".m2ts"
+    ],
+    "media_folders": [
+      {
+        "name": "UHD",
+        "tag": "UHD"
+      },
+      {
+        "name": "HD",
+        "tag": "HD"
+      },
+      {
+        "name": "SD",
+        "tag": "SD"
+      },
+      {
+        "name": "Other UHD",
+        "tag": "Other UHD"
+      },
+      {
+        "name": "Other HD",
+        "tag": "Other HD"
+      },
+      {
+        "name": "Other SD",
+        "tag": "Other SD"
+      }
+    ]
   },
   "shows": {
-    "root_path": "Z:\\Shows",
-    "quality_folders": [
-      { "folder": "UHD",       "tag": "UHD" },
-      { "folder": "HD",        "tag": "HD" },
-      { "folder": "SD",        "tag": "SD" },
-      { "folder": "Other UHD", "tag": "Other UHD" },
-      { "folder": "Other HD",  "tag": "Other HD" },
-      { "folder": "Other SD",  "tag": "Other SD" }
+    "root_path": "M:\\Shows",
+    "primary_extension": [
+      ".mp4"
     ],
-    "primary_extension": ".mp4",
-    "video_extensions": [".mp4", ".mkv", ".avi", ".m4v", ".mov", ".wmv", ".ts", ".m2ts"]
+    "video_extensions": [
+      ".mp4",
+      ".mkv",
+      ".avi",
+      ".m4v",
+      ".mov",
+      ".wmv",
+      ".ts",
+      ".m2ts"
+    ],
+    "ignored_season_names": [
+      "Specials",
+      "Champion of Champions"
+    ],
+    "media_folders": [
+      {
+        "name": "UHD",
+        "tag": "UHD"
+      },
+      {
+        "name": "HD",
+        "tag": "HD"
+      },
+      {
+        "name": "SD",
+        "tag": "SD"
+      },
+      {
+        "name": "Other UHD",
+        "tag": "Other UHD"
+      },
+      {
+        "name": "Other HD",
+        "tag": "Other HD"
+      },
+      {
+        "name": "Other SD",
+        "tag": "Other SD"
+      }
+    ]
   },
   "music": {
     "root_path": "Z:\\Music",
-    "primary_extension": ".flac",
-    "audio_extensions": [".flac", ".mp3", ".aac", ".m4a", ".wav", ".ogg"]
+    "primary_extension": [
+      ".flac"
+    ],
+    "audio_extensions": [
+      ".flac",
+      ".mp3",
+      ".aac",
+      ".m4a",
+      ".wav",
+      ".ogg"
+    ]
   },
   "audiobooks": {
     "root_path": "Z:\\Audiobooks",
-    "primary_extension": ".m4b",
-    "audio_extensions": [".m4b", ".mp3", ".aac", ".m4a"]
+    "primary_extension": [
+      ".m4b"
+    ],
+    "audio_extensions": [
+      ".m4b",
+      ".mp3",
+      ".aac",
+      ".m4a"
+    ]
   }
 }
