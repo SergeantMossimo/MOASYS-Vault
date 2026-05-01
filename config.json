@@ -93,9 +93,29 @@
     ]
   },
   "music": {
-    "root_path": "Z:\\Music",
+    "root_path": "M:\\Audio",
+    "media_folders": [
+      {
+        "name": "Music",
+        "tag": "Music"
+      },
+      {
+        "name": "Other Music",
+        "tag": "Other Music"
+      },
+      {
+        "name": "Soundtracks",
+        "tag": "Soundtracks"
+      },
+      {
+        "name": "Other Soundtracks",
+        "tag": "Other Soundtracks"
+      }
+    ],
     "primary_extension": [
-      ".flac"
+      ".flac",
+      ".mp3",
+      ".m4a"
     ],
     "audio_extensions": [
       ".flac",
@@ -103,19 +123,36 @@
       ".aac",
       ".m4a",
       ".wav",
-      ".ogg"
+      ".ogg",
+      ".wma"
     ]
   },
   "audiobooks": {
-    "root_path": "Z:\\Audiobooks",
+    "root_path": "M:\\Audiobooks",
+    "media_folders": [
+      {
+        "name": "Audible",
+        "tag": "Audible"
+      },
+      {
+        "name": "Other Audible",
+        "tag": "Other Audible"
+      },
+      {
+        "name": "Book On CD",
+        "tag": "Book On CD"
+      }
+    ],
     "primary_extension": [
-      ".m4b"
+      ".mp3",
+      ".flac"
     ],
     "audio_extensions": [
       ".m4b",
       ".mp3",
       ".aac",
-      ".m4a"
+      ".m4a",
+      ".flac"
     ]
   }
 }
