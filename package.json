@@ -1,0 +1,28 @@
+{
+  "name": "moasys-vault",
+  "version": "1.0.0",
+  "description": "MOASYS-Vault — Plex Media Library Scanner",
+  "scripts": {
+    "movies": "tsx src/scan.ts --type movies",
+    "shows": "tsx src/scan.ts --type shows",
+    "music": "tsx src/scan.ts --type music",
+    "audiobooks": "tsx src/scan.ts --type audiobooks",
+    "scan:all": "tsx src/scan.ts --all",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "lint:md": "markdownlint-cli2 **/*.md #node_modules",
+    "prettier": "prettier --write \"src/**/*.ts\" \"**/*.md\" \"!node_modules\"",
+    "prettier:check": "prettier --check \"src/**/*.ts\" \"**/*.md\" \"!node_modules\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^8.57.0",
+    "markdownlint-cli2": "^0.22.1",
+    "prettier": "^3.2.5",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

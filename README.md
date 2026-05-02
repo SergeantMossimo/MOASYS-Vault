@@ -2,7 +2,7 @@
 
 **MOASYS-Vault** is a media library scanner for [Plex](https://www.plex.tv/) collections. Point it at your media directories and it generates a clean, structured catalog of everything you own — including quality versions, alternate editions, and any files that need attention.
 
-Built for **MOASYS** *(Mossimo's Oasis System)* and designed to be shared — configurable by anyone using Plex naming conventions.
+Built for **MOASYS** _(Mossimo's Oasis System)_ and designed to be shared — configurable by anyone using Plex naming conventions.
 
 ---
 
@@ -15,7 +15,6 @@ Built for **MOASYS** *(Mossimo's Oasis System)* and designed to be shared — co
 - Reads from local folders, external drives, and network shares (NAS via SMB)
 - Outputs a clean JSON file per media type, ready for website use
 - Outputs a `warnings.json` per media type flagging files that need attention
-- Outputs a SQLite database per media type for local querying
 
 ### Movies ✓
 
@@ -53,10 +52,8 @@ Built for **MOASYS** *(Mossimo's Oasis System)* and designed to be shared — co
 
 ## Requirements
 
-- Python 3.8 or higher — download from [python.org](https://www.python.org/downloads/) if not already installed
-  - **Windows:** installer available at python.org — check **"Add Python to PATH"** during installation. Run with `python`
-  - **macOS:** likely pre-installed. Check with `python3 --version` in Terminal. Run with `python3`
-- No third-party packages required — standard library only
+- [Node.js](https://nodejs.org/) v22 or higher (v24 LTS recommended)
+- npm (included with Node.js)
 
 ---
 
@@ -103,6 +100,7 @@ Clone or download this repository and place it anywhere on your machine:
 ```bash
 git clone https://github.com/yourname/MOASYS-Vault.git
 cd MOASYS-Vault
+npm install
 ```
 
 ---
@@ -120,12 +118,12 @@ The config has one section per media type. Below are examples for each type.
   "movies": {
     "root_path": "Z:\\Movies",
     "media_folders": [
-      { "name": "UHD",       "tag": "UHD" },
-      { "name": "HD",        "tag": "HD" },
-      { "name": "SD",        "tag": "SD" },
+      { "name": "UHD", "tag": "UHD" },
+      { "name": "HD", "tag": "HD" },
+      { "name": "SD", "tag": "SD" },
       { "name": "Other UHD", "tag": "Other UHD" },
-      { "name": "Other HD",  "tag": "Other HD" },
-      { "name": "Other SD",  "tag": "Other SD" }
+      { "name": "Other HD", "tag": "Other HD" },
+      { "name": "Other SD", "tag": "Other SD" }
     ],
     "primary_extension": [".mp4"],
     "video_extensions": [".mp4", ".mkv", ".avi", ".m4v", ".mov", ".wmv", ".ts", ".m2ts"]
@@ -140,9 +138,9 @@ The config has one section per media type. Below are examples for each type.
   "music": {
     "root_path": "M:\\Audio",
     "media_folders": [
-      { "name": "Music",             "tag": "Music"             },
-      { "name": "Other Music",       "tag": "Other Music"       },
-      { "name": "Soundtracks",       "tag": "Soundtracks"       },
+      { "name": "Music", "tag": "Music" },
+      { "name": "Other Music", "tag": "Other Music" },
+      { "name": "Soundtracks", "tag": "Soundtracks" },
       { "name": "Other Soundtracks", "tag": "Other Soundtracks" }
     ],
     "primary_extension": [".flac"],
@@ -158,7 +156,7 @@ The config has one section per media type. Below are examples for each type.
   "audiobooks": {
     "root_path": "M:\\Audiobooks",
     "media_folders": [
-      { "name": "Audible",    "tag": "Audible"    },
+      { "name": "Audible", "tag": "Audible" },
       { "name": "Book On CD", "tag": "Book On CD" }
     ],
     "primary_extension": [".m4b"],
@@ -184,7 +182,7 @@ The config has one section per media type. Below are examples for each type.
 
 **`video_extensions`** — All formats considered valid video files. Anything outside this list is ignored entirely (e.g. `.nfo`, `.jpg` sidecar files).
 
-**`ignored_season_names`** *(Shows only)* — Season folder names listed here are included in the output without triggering a naming convention warning. Useful for Plex special season folders like `Specials`.
+**`ignored_season_names`** _(Shows only)_ — Season folder names listed here are included in the output without triggering a naming convention warning. Useful for Plex special season folders like `Specials`.
 
 ```json
 "ignored_season_names": ["Specials", "Champion of Champions"]
@@ -272,60 +270,45 @@ Audiobooks/
 
 All scans are run from the project root directory.
 
-> **Windows:** use `python` — **macOS/Linux:** use `python3`
-
 ### Scan movies only
 
-Windows:
-
 ```bash
-python scan.py --type movies
-```
-
-macOS / Linux:
-
-```bash
-python3 scan.py --type movies
+npm run movies
 ```
 
 ### Scan shows only
 
 ```bash
-# Windows
-python scan.py --type shows
-
-# macOS / Linux
-python3 scan.py --type shows
+npm run shows
 ```
 
 ### Scan music only
 
 ```bash
-# Windows
-python scan.py --type music
-
-# macOS / Linux
-python3 scan.py --type music
+npm run music
 ```
 
 ### Scan audiobooks only
 
 ```bash
-# Windows
-python scan.py --type audiobooks
-
-# macOS / Linux
-python3 scan.py --type audiobooks
+npm run audiobooks
 ```
 
 ### Scan all media types at once
 
 ```bash
-# Windows
-python scan.py --all
+npm run scan:all
+```
 
-# macOS / Linux
-python3 scan.py --all
+### Other useful commands
+
+```bash
+npm run typecheck      # Check TypeScript types without running
+npm run lint           # Check for ESLint issues in TypeScript files
+npm run lint:fix       # Auto-fix ESLint issues
+npm run lint:md        # Check Markdown files with markdownlint
+npm run prettier       # Format TypeScript and Markdown files with Prettier
+npm run prettier:check # Check formatting without making changes
 ```
 
 ---
@@ -338,20 +321,16 @@ Each media type writes its output to its own subfolder inside `output/`. All med
 output/
 ├── movies/
 │   ├── movies.json       ← clean list, ready for your website
-│   ├── warnings.json     ← files that need attention
-│   └── movies.db         ← SQLite database for local querying
+│   └── warnings.json     ← files that need attention
 ├── shows/
 │   ├── shows.json
-│   ├── warnings.json
-│   └── shows.db
+│   └── warnings.json
 ├── music/
 │   ├── music.json
-│   ├── warnings.json
-│   └── music.db
+│   └── warnings.json
 └── audiobooks/
     ├── audiobooks.json
-    ├── warnings.json
-    └── audiobooks.db
+    └── warnings.json
 ```
 
 ### movies.json
@@ -363,12 +342,6 @@ output/
     "year": 1977,
     "edition": null,
     "qualities": ["UHD"]
-  },
-  {
-    "title": "Close Encounters of the Third Kind",
-    "year": 1977,
-    "edition": "Director's Cut",
-    "qualities": ["HD"]
   },
   {
     "title": "The Crow",
@@ -407,12 +380,6 @@ output/
         "track_count": 26,
         "qualities": ["FLAC"],
         "media_type": ["Music"]
-      },
-      {
-        "album": "Wish You Were Here",
-        "track_count": 5,
-        "qualities": ["FLAC", "MP3"],
-        "media_type": ["Music", "Other Music"]
       }
     ]
   }
@@ -428,12 +395,6 @@ output/
     "authors": ["Terry Pratchett", "Neil Gaiman"],
     "chapter_count": 26,
     "media_type": ["Audible"]
-  },
-  {
-    "title": "The Hobbit",
-    "authors": ["J.R.R. Tolkien"],
-    "chapter_count": 12,
-    "media_type": ["Book On CD"]
   }
 ]
 ```
@@ -443,16 +404,12 @@ output/
 ```json
 {
   "generated": "2026-04-20T10:30:00+00:00",
-  "count": 2,
+  "count": 1,
   "files": [
     {
       "path": "UHD/The Terminator (1984)/The Terminator (1984).mkv",
       "extension": ".mkv",
       "issue": "Non-.MP4 video file — may need re-encoding"
-    },
-    {
-      "path": "HD/Somefolder",
-      "issue": "No recognized video files found in folder"
     }
   ]
 }
@@ -462,49 +419,49 @@ output/
 
 #### Movies
 
-| Warning | Meaning |
-| --- | --- |
-| Non-primary video file — may need re-encoding | File exists but isn't your configured primary format |
-| No recognized video files found in folder | Folder is empty or contains only sidecar files |
-| File name does not match Plex naming convention | File won't be picked up by Plex correctly |
-| Empty edition tag | File has `{edition-}` with nothing after the dash |
-| Suspicious year | Year is before 1888 or in the future — likely a typo |
-| File title does not match folder title | Title mismatch between the file name and its parent folder |
-| File year does not match folder year | Year mismatch between the file name and its parent folder |
-| Duplicate edition | Two files in the same folder claim the same edition name |
+| Warning                                         | Meaning                                                    |
+| ----------------------------------------------- | ---------------------------------------------------------- |
+| Non-primary video file — may need re-encoding   | File exists but isn't your configured primary format       |
+| No recognized video files found in folder       | Folder is empty or contains only sidecar files             |
+| File name does not match Plex naming convention | File won't be picked up by Plex correctly                  |
+| Empty edition tag                               | File has `{edition-}` with nothing after the dash          |
+| Suspicious year                                 | Year is before 1888 or in the future — likely a typo       |
+| File title does not match folder title          | Title mismatch between the file name and its parent folder |
+| File year does not match folder year            | Year mismatch between the file name and its parent folder  |
+| Duplicate edition                               | Two files in the same folder claim the same edition name   |
 
 #### Shows
 
-| Warning | Meaning |
-| --- | --- |
-| Non-primary video file — may need re-encoding | File exists but isn't your configured primary format |
-| No recognized video files found in season folder | Season folder is empty or contains only sidecar files |
-| Show folder does not match Plex naming convention | Expected: Show Title (YEAR) |
-| Season folder does not match expected format | Expected: Season 01 |
-| File name does not match Plex naming convention | Expected: Show Title (YEAR) - S01E01 - Episode Title |
-| File show/year does not match show folder | Naming mismatch between file and its parent show folder |
-| File season does not match season folder | Episode file is in the wrong season folder |
-| Potential missing episodes | Gap detected in episode numbers within a season |
+| Warning                                           | Meaning                                                 |
+| ------------------------------------------------- | ------------------------------------------------------- |
+| Non-primary video file — may need re-encoding     | File exists but isn't your configured primary format    |
+| No recognized video files found in season folder  | Season folder is empty or contains only sidecar files   |
+| Show folder does not match Plex naming convention | Expected: Show Title (YEAR)                             |
+| Season folder does not match expected format      | Expected: Season 01                                     |
+| File name does not match Plex naming convention   | Expected: Show Title (YEAR) - S01E01 - Episode Title    |
+| File show/year does not match show folder         | Naming mismatch between file and its parent show folder |
+| File season does not match season folder          | Episode file is in the wrong season folder              |
+| Potential missing episodes                        | Gap detected in episode numbers within a season         |
 
 #### Music
 
-| Warning | Meaning |
-| --- | --- |
-| Non-primary audio file — may need re-encoding | File exists but isn't your configured primary format |
-| No recognized audio files found in album folder | Album folder is empty or contains only sidecar files |
-| Track file name does not match naming convention | Expected: `01 - Track Name.ext` or `101 - Track Name.ext` |
-| Potential missing tracks | Gap detected in track numbers within an album (checked per disc) |
-| Duplicate album | Same artist + album found in more than one media folder |
+| Warning                                          | Meaning                                                          |
+| ------------------------------------------------ | ---------------------------------------------------------------- |
+| Non-primary audio file — may need re-encoding    | File exists but isn't your configured primary format             |
+| No recognized audio files found in album folder  | Album folder is empty or contains only sidecar files             |
+| Track file name does not match naming convention | Expected: `01 - Track Name.ext` or `101 - Track Name.ext`        |
+| Potential missing tracks                         | Gap detected in track numbers within an album (checked per disc) |
+| Duplicate album                                  | Same artist + album found in more than one media folder          |
 
 #### Audiobooks
 
-| Warning | Meaning |
-| --- | --- |
-| Non-primary audio file — may need re-encoding | File exists but isn't your configured primary format |
-| No recognized audio files found in book folder | Book folder is empty or contains only sidecar files |
-| Chapter file name does not match naming convention | Expected: `01 - Chapter Name.ext` or `101 - Chapter Name.ext` |
-| Potential missing chapters | Gap detected in chapter numbers within a book (checked per disc) |
-| Duplicate book | Same book title found in more than one media folder |
+| Warning                                            | Meaning                                                          |
+| -------------------------------------------------- | ---------------------------------------------------------------- |
+| Non-primary audio file — may need re-encoding      | File exists but isn't your configured primary format             |
+| No recognized audio files found in book folder     | Book folder is empty or contains only sidecar files              |
+| Chapter file name does not match naming convention | Expected: `01 - Chapter Name.ext` or `101 - Chapter Name.ext`    |
+| Potential missing chapters                         | Gap detected in chapter numbers within a book (checked per disc) |
+| Duplicate book                                     | Same book title found in more than one media folder              |
 
 ---
 
@@ -512,23 +469,27 @@ output/
 
 ```text
 MOASYS-Vault/
-├── scan.py               ← entry point, run this
-├── config.json           ← your settings, edit this
-├── README.md
-├── core/
-│   ├── __init__.py
-│   └── scanner.py        ← shared scanning scaffolding (folder walking, output writing)
-├── media/
-│   ├── __init__.py
-│   ├── movies.py         ← movie parsing, serialization, DB logic ✓
-│   ├── shows.py          ← show parsing, serialization, DB logic ✓
-│   ├── music.py          ← music parsing, serialization, DB logic ✓
-│   └── audiobooks.py     ← audiobook parsing, serialization, DB logic ✓
-└── output/
-    ├── movies/
-    ├── shows/
-    ├── music/
-    └── audiobooks/
+├── src/
+│   ├── scan.ts               ← entry point, run via npm scripts
+│   ├── core/
+│   │   ├── types.ts          ← shared TypeScript interfaces
+│   │   └── scanner.ts        ← shared scanning scaffolding
+│   └── media/
+│       ├── movies.ts         ← movie parsing and serialization ✓
+│       ├── shows.ts          ← show parsing and serialization ✓
+│       ├── music.ts          ← music parsing and serialization ✓
+│       └── audiobooks.ts     ← audiobook parsing and serialization ✓
+├── output/                   ← generated output, not committed to git
+│   ├── movies/
+│   ├── shows/
+│   ├── music/
+│   └── audiobooks/
+├── config.json               ← your settings, edit this
+├── package.json
+├── tsconfig.json
+├── .eslintrc.json
+├── .prettierrc.js
+└── .gitignore
 ```
 
 ---
