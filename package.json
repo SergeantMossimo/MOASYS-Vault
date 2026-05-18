@@ -11,8 +11,8 @@
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "lint:md": "markdownlint-cli2 **/*.md #node_modules",
-    "prettier": "prettier --write \"src/**/*.ts\" \"**/*.md\" \"!node_modules\"",
-    "prettier:check": "prettier --check \"src/**/*.ts\" \"**/*.md\" \"!node_modules\"",
+    "prettier:fix": "prettier --write \"src/**/*.ts\" \"**/*.md\" \"!node_modules\"",
+    "prettier": "prettier --check \"src/**/*.ts\" \"**/*.md\" \"!node_modules\"",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

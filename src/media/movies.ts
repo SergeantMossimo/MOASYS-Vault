@@ -29,6 +29,21 @@ import {
 const EARLIEST_FILM_YEAR = 1888 // Roundhay Garden Scene
 const CURRENT_YEAR = new Date().getFullYear() // Evaluated once at startup
 
+/**
+ * Quality combinations that are intentionally kept across folders and should
+ * NOT be flagged by the post-scan multi-quality check. Comparison is set-based
+ * (order-insensitive), so listed order here doesn't have to match the canonical
+ * media_folders order.
+ *
+ * Add a combo here when a cross-folder redundancy is intentional.
+ */
+const ACCEPTABLE_QUALITY_COMBOS: readonly string[][] = [
+  ['UHD', 'HD'],
+  ['Other UHD', 'Other HD'],
+  ['HD', 'Other UHD'],
+  ['UHD', 'Other HD'],
+]
+
 // ─────────────────────────────────────────────
 // Regex patterns
 // ─────────────────────────────────────────────
@@ -105,6 +120,19 @@ function parseFileStem(
  */
 function makeKey(title: string, year: number, edition: string | null): string {
   return `${title.toLowerCase()}|${year}|${(edition ?? '').toLowerCase()}`
+}
+
+/** Return true if the qualities set matches one of the acceptable combos */
+function isAcceptableCombo(qualities: Set<string>): boolean {
+  return ACCEPTABLE_QUALITY_COMBOS.some(
+    combo => combo.length === qualities.size && combo.every(q => qualities.has(q))
+  )
+}
+
+/** Build the Plex-style movie name used as the warning path */
+function movieDisplayName(record: MovieRecord): string {
+  const base = `${record.title} (${record.year})`
+  return record.edition ? `${base} {edition-${record.edition}}` : base
 }
 
 // ─────────────────────────────────────────────
@@ -299,5 +327,24 @@ export const moviesModule: MediaModule<MovieRecord, MovieOutput, MoviesConfig> =
         if (a.year !== b.year) return a.year - b.year
         return (a.edition ?? '').localeCompare(b.edition ?? '')
       })
+  },
+
+  /**
+   * Post-merge check: emit a warning for each movie that exists in more than
+   * one quality folder, unless its quality set is in ACCEPTABLE_QUALITY_COMBOS.
+   * Can only run after all folders are scanned because qualities accumulate
+   * during merge().
+   */
+  postScan(records: Map<string, MovieRecord>, warnings: WarningCollector): void {
+    for (const record of records.values()) {
+      if (record.qualities.size <= 1) continue
+      if (isAcceptableCombo(record.qualities)) continue
+
+      const ordered = qualityOrder.filter(q => record.qualities.has(q))
+      warnings.add(
+        movieDisplayName(record),
+        `Movie exists in multiple quality folders: ${ordered.join(', ')}`
+      )
+    }
   },
 }

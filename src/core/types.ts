@@ -202,6 +202,14 @@ export interface MediaModule<TRecord, TOutput, TConfig extends BaseMediaConfig> 
 
   /** Set the tag order from config so output is sorted consistently */
   initTagOrder(mediaFolders: MediaFolder[]): void
+
+  /**
+   * Optional: runs once after all media folders have been scanned and merged.
+   * Use for warnings that need the fully-merged records map (e.g. movies'
+   * multi-quality check, which can only fire once a movie's qualities Set is
+   * complete across all folders).
+   */
+  postScan?(records: Map<string, TRecord>, warnings: WarningCollector): void
 }
 
 // ─────────────────────────────────────────────

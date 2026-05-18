@@ -198,8 +198,6 @@ The config has one section per media type. Below are examples for each type.
 
 ### Movies
 
-Follows the [Plex naming convention](https://support.plex.tv/articles/naming-and-organizing-your-movie-media-files/):
-
 ```text
 Movies/
 └── UHD/
@@ -216,8 +214,6 @@ Movies/
 
 ### Shows
 
-Follows the [Plex naming convention](https://support.plex.tv/articles/naming-and-organizing-your-tv-show-files/):
-
 ```text
 Shows/
 └── HD/
@@ -229,8 +225,6 @@ Shows/
 ```
 
 ### Music
-
-Follows the [Plex music naming convention](https://support.plex.tv/articles/200265266-adding-music-media-from-folders/):
 
 ```text
 Audio/
@@ -320,7 +314,7 @@ Each media type writes its output to its own subfolder inside `output/`. All med
 ```text
 output/
 ├── movies/
-│   ├── movies.json       ← clean list, ready for your website
+│   ├── movies.json       ← clean list
 │   └── warnings.json     ← files that need attention
 ├── shows/
 │   ├── shows.json
@@ -419,29 +413,30 @@ output/
 
 #### Movies
 
-| Warning                                         | Meaning                                                    |
-| ----------------------------------------------- | ---------------------------------------------------------- |
-| Non-primary video file — may need re-encoding   | File exists but isn't your configured primary format       |
-| No recognized video files found in folder       | Folder is empty or contains only sidecar files             |
-| File name does not match Plex naming convention | File won't be picked up by Plex correctly                  |
-| Empty edition tag                               | File has `{edition-}` with nothing after the dash          |
-| Suspicious year                                 | Year is before 1888 or in the future — likely a typo       |
-| File title does not match folder title          | Title mismatch between the file name and its parent folder |
-| File year does not match folder year            | Year mismatch between the file name and its parent folder  |
-| Duplicate edition                               | Two files in the same folder claim the same edition name   |
+| Warning                                         | Meaning                                                                                       |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Non-primary video file — may need re-encoding   | File exists but isn't your configured primary format                                          |
+| No recognized video files found in folder       | Folder is empty or contains only sidecar files                                                |
+| File name does not match Plex naming convention | File won't be picked up by Plex correctly                                                     |
+| Empty edition tag                               | File has `{edition-}` with nothing after the dash                                             |
+| Suspicious year                                 | Year is before 1888 or in the future — likely a typo                                          |
+| File title does not match folder title          | Title mismatch between the file name and its parent folder                                    |
+| File year does not match folder year            | Year mismatch between the file name and its parent folder                                     |
+| Duplicate edition                               | Two files in the same folder claim the same edition name                                      |
+| Movie exists in multiple quality folders        | Same movie copy lives in two unexpected quality folders (acceptable UHD/HD pairings excluded) |
 
 #### Shows
 
-| Warning                                           | Meaning                                                 |
-| ------------------------------------------------- | ------------------------------------------------------- |
-| Non-primary video file — may need re-encoding     | File exists but isn't your configured primary format    |
-| No recognized video files found in season folder  | Season folder is empty or contains only sidecar files   |
-| Show folder does not match Plex naming convention | Expected: Show Title (YEAR)                             |
-| Season folder does not match expected format      | Expected: Season 01                                     |
-| File name does not match Plex naming convention   | Expected: Show Title (YEAR) - S01E01 - Episode Title    |
-| File show/year does not match show folder         | Naming mismatch between file and its parent show folder |
-| File season does not match season folder          | Episode file is in the wrong season folder              |
-| Potential missing episodes                        | Gap detected in episode numbers within a season         |
+| Warning                                           | Meaning                                                                            |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Non-primary video file — may need re-encoding     | File exists but isn't your configured primary format                               |
+| No recognized video files found in season folder  | Season folder is empty or contains only sidecar files                              |
+| Show folder does not match Plex naming convention | Expected: Show Title (YEAR)                                                        |
+| Season folder does not match expected format      | Expected: Season 01                                                                |
+| File name does not match Plex naming convention   | Expected: Show Title (YEAR) - S01E01 or Show Title (YEAR) - S01E01 - Episode Title |
+| File show/year does not match show folder         | Naming mismatch between file and its parent show folder                            |
+| File season does not match season folder          | Episode file is in the wrong season folder                                         |
+| Potential missing episodes                        | Gap detected in episode numbers within a season                                    |
 
 #### Music
 
@@ -491,17 +486,6 @@ MOASYS-Vault/
 ├── .prettierrc.js
 └── .gitignore
 ```
-
----
-
-## Roadmap
-
-- [x] Movie scanning
-- [x] Show scanning
-- [x] Music scanning
-- [x] Audiobook scanning
-- [ ] Website with searchable media lists
-- [ ] TMDB API integration for movies and shows (posters, genres, ratings)
 
 ---
 
