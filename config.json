@@ -17,7 +17,8 @@
       ".mov",
       ".wmv",
       ".ts",
-      ".m2ts"
+      ".m2ts",
+      ".webm"
     ],
     "media_folders": [
       {

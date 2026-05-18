@@ -38,12 +38,13 @@ const SHOW_FOLDER_PATTERN = /^(.+)\s\((\d{4})\)$/
 // Group 1 = season number e.g. "01"
 const SEASON_FOLDER_PATTERN = /^Season\s(\d{2})$/i
 
-// Matches episode file stems — single and multi-episode:
+// Matches episode file stems — single and multi-episode, episode title optional:
+//   "Star Trek Enterprise (2001) - S01E03"
 //   "Star Trek Enterprise (2001) - S01E03 - Flight Or Flight"
 //   "Star Trek Enterprise (2001) - S01E01-E02 - Broken Bow Part 1 And 2"
 // Group 1 = title, Group 2 = year, Group 3 = season,
 // Group 4 = first episode, Group 5 = second episode (multi only)
-const FILE_PATTERN = /^(.+)\s\((\d{4})\)\s-\sS(\d{2})E(\d{2})(?:-E?(\d{2}))?\s-\s.+$/i
+const FILE_PATTERN = /^(.+)\s\((\d{4})\)\s-\sS(\d{2})E(\d{2})(?:-E?(\d{2}))?(?:\s-\s.+)?$/i
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -253,7 +254,7 @@ export const showsModule: MediaModule<ShowRecord, ShowOutput, ShowsConfig> = {
           if (!parsed) {
             warnings.add(
               path.join(seasonRel, f.name),
-              'File name does not match Plex naming convention — expected: Show Title (YEAR) - S01E01 - Episode Title'
+              'File name does not match Plex naming convention — expected: Show Title (YEAR) - S01E01 or Show Title (YEAR) - S01E01 - Episode Title'
             )
             continue
           }

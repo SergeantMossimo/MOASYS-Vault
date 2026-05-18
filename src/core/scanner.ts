@@ -51,6 +51,9 @@ export function scan<TRecord, TOutput, TConfig extends BaseMediaConfig>(
     mediaModule.merge(records, incoming)
   }
 
+  // Post-merge hook: media modules can run checks that need the full records map
+  mediaModule.postScan?.(records, warnings)
+
   return records
 }
 
