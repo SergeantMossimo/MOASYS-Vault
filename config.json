@@ -62,10 +62,6 @@
       ".ts",
       ".m2ts"
     ],
-    "ignored_season_names": [
-      "Specials",
-      "Champion of Champions"
-    ],
     "media_folders": [
       {
         "name": "UHD",

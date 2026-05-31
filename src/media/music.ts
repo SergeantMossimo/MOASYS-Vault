@@ -3,13 +3,16 @@
  * --------------
  * Music-specific parsing, serialization, and DB logic for MOASYS-Vault.
  *
- * Expected folder structure:
+ * Expected folder structure (default rules):
  *   <media_folder>/
  *     <Artist Name>/
  *       <Album Name>/
  *         01 - Track Name.flac
  *         101 - Track Name.flac     ← multi-disc: disc 1, track 1
  *         201 - Track Name.flac     ← multi-disc: disc 2, track 1
+ *
+ * Track patterns come from src/core/rules/music.ts (with optional YAML
+ * overrides in rules/music.yaml).
  */
 
 import fs from 'fs'
@@ -23,56 +26,44 @@ import {
   WarningCollector,
   MediaModule,
 } from '../core/types'
-
-// ─────────────────────────────────────────────
-// Regex patterns
-// ─────────────────────────────────────────────
-
-// Matches single-disc track stems: "01 - Track Name"
-// Group 1 = track number (2 digits), Group 2 = track name
-const SINGLE_DISC_PATTERN = /^(\d{2})\s-\s(.+)$/
-
-// Matches multi-disc track stems: "101 - Track Name", "302 - Track Name"
-// Group 1 = disc number, Group 2 = track number (2 digits), Group 3 = track name
-const MULTI_DISC_PATTERN = /^(\d+)(\d{2})\s-\s(.+)$/
+import {
+  hasExtension,
+  isPrimary,
+  formatPrimaryExts,
+  findSuspiciousPathChars,
+  findUnexpectedEntries,
+} from '../core/files'
+import { findNumericGaps } from '../core/gaps'
+import { MusicRules } from '../core/rules/music'
+import { compilePattern } from '../core/rules/helpers'
 
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
 
-function isAudio(filename: string, config: MusicConfig): boolean {
-  const ext = path.extname(filename).toLowerCase()
-  return config.audio_extensions.map(e => e.toLowerCase()).includes(ext)
-}
-
-function isPrimary(filename: string, config: MusicConfig): boolean {
-  const ext = path.extname(filename).toLowerCase()
-  return config.primary_extension.map(e => e.toLowerCase()).includes(ext)
-}
-
-function formatPrimaryExts(config: MusicConfig): string {
-  return 'Non-' + config.primary_extension.map(e => e.toUpperCase()).join('/')
-}
-
 /**
  * Parse a track file stem into { disc, track, name } or null.
- * Single-disc files (01 - Name) are treated as disc 1.
- * Multi-disc files (101 - Name) extract the disc from the leading digit(s).
+ * Tries the multi-disc pattern first (more specific), then single-disc as fallback.
+ * Single-disc files (e.g. "01 - Track Name") are treated as disc 1.
  */
-function parseTrackStem(stem: string): { disc: number; track: number; name: string } | null {
-  // Try multi-disc first — it's more specific
-  let m = MULTI_DISC_PATTERN.exec(stem)
-  if (m) {
-    return {
-      disc: parseInt(m[1]!, 10),
-      track: parseInt(m[2]!, 10),
-      name: m[3]!.trim(),
+function parseTrackStem(
+  stem: string,
+  multiDiscRegex: RegExp,
+  singleDiscRegex: RegExp
+): { disc: number; track: number; name: string } | null {
+  const mm = multiDiscRegex.exec(stem)
+  if (mm?.groups) {
+    const { disc, track, name } = mm.groups
+    if (disc !== undefined && track !== undefined && name !== undefined) {
+      return { disc: parseInt(disc, 10), track: parseInt(track, 10), name: name.trim() }
     }
   }
-  // Fall back to single-disc (treat as disc 1)
-  m = SINGLE_DISC_PATTERN.exec(stem)
-  if (m) {
-    return { disc: 1, track: parseInt(m[1]!, 10), name: m[2]!.trim() }
+  const sm = singleDiscRegex.exec(stem)
+  if (sm?.groups) {
+    const { track, name } = sm.groups
+    if (track !== undefined && name !== undefined) {
+      return { disc: 1, track: parseInt(track, 10), name: name.trim() }
+    }
   }
   return null
 }
@@ -85,217 +76,343 @@ function makeAlbumKey(artist: string, album: string): string {
   return `${artist.toLowerCase()}|${album.toLowerCase()}`
 }
 
-/**
- * Find gaps in track numbers for a single disc.
- * Example: [1, 2, 4] -> [3]
- */
-function findTrackGaps(numbers: number[]): number[] {
-  if (numbers.length === 0) return []
-  const min = Math.min(...numbers)
-  const max = Math.max(...numbers)
-  const gaps = []
-  for (let i = min; i <= max; i++) {
-    if (!numbers.includes(i)) gaps.push(i)
-  }
-  return gaps
-}
-
 // ─────────────────────────────────────────────
-// Media type order
+// Factory
 // ─────────────────────────────────────────────
 
-// Stores media folder tag order for consistent media_type sorting in output
-let mediaTypeOrder: string[] = []
+export function createMusicModule(
+  rules: MusicRules
+): MediaModule<ArtistRecord, ArtistOutput, MusicConfig> {
+  const artistFolderRegex = compilePattern(rules.patterns.artist_folder)
+  const albumFolderRegex = compilePattern(rules.patterns.album_folder)
+  const multiDiscRegex = compilePattern(rules.patterns.multi_disc)
+  const singleDiscRegex = compilePattern(rules.patterns.single_disc)
 
-// ─────────────────────────────────────────────
-// Media module implementation
-// ─────────────────────────────────────────────
+  let mediaTypeOrder: string[] = []
 
-export const musicModule: MediaModule<ArtistRecord, ArtistOutput, MusicConfig> = {
-  initTagOrder(mediaFolders: MediaFolder[]): void {
-    mediaTypeOrder = mediaFolders.map(mf => mf.tag)
-  },
+  return {
+    initTagOrder(mediaFolders: MediaFolder[]): void {
+      mediaTypeOrder = mediaFolders.map(mf => mf.tag)
+    },
 
-  scanMediaFolder(
-    folderPath: string,
-    folderName: string,
-    tag: string,
-    config: MusicConfig,
-    warnings: WarningCollector
-  ): Map<string, ArtistRecord> {
-    const records = new Map<string, ArtistRecord>()
+    scanMediaFolder(
+      folderPath: string,
+      folderName: string,
+      tag: string,
+      config: MusicConfig,
+      warnings: WarningCollector
+    ): Map<string, ArtistRecord> {
+      const records = new Map<string, ArtistRecord>()
 
-    // Each subfolder inside the media folder should be an artist folder
-    for (const artistEntry of fs.readdirSync(folderPath, {
-      withFileTypes: true,
-    })) {
-      if (!artistEntry.isDirectory()) continue
+      const rootEntries = fs.readdirSync(folderPath, { withFileTypes: true })
 
-      const artistPath = path.join(folderPath, artistEntry.name)
-      const artistRel = path.join(folderName, artistEntry.name)
-      const artistKey = makeArtistKey(artistEntry.name)
-
-      let albumEntries: fs.Dirent[]
-      try {
-        albumEntries = fs.readdirSync(artistPath, { withFileTypes: true })
-      } catch {
-        warnings.add(artistRel, 'Permission denied reading artist folder')
-        continue
-      }
-
-      for (const albumEntry of albumEntries) {
-        if (!albumEntry.isDirectory()) continue // Skip loose files (e.g. artist artwork)
-
-        const albumPath = path.join(artistPath, albumEntry.name)
-        const albumRel = path.join(artistRel, albumEntry.name)
-        const albumKey = makeAlbumKey(artistEntry.name, albumEntry.name)
-
-        let allFiles: fs.Dirent[]
-        try {
-          allFiles = fs.readdirSync(albumPath, { withFileTypes: true })
-        } catch {
-          warnings.add(albumRel, 'Permission denied reading album folder')
-          continue
-        }
-
-        const audioFiles = allFiles.filter(f => f.isFile() && isAudio(f.name, config))
-        const nonPrimary = audioFiles.filter(f => !isPrimary(f.name, config))
-
-        // Warning: no audio files at all
-        if (audioFiles.length === 0) {
-          warnings.add(albumRel, 'No recognized audio files found in album folder')
-          continue
-        }
-
-        // Warning: non-primary audio files (e.g. .mp3 when primary is .flac)
-        for (const f of nonPrimary) {
-          const ext = path.extname(f.name).toLowerCase()
+      // Loose audio files at media folder level — silently dropped without
+      // this check. Plex expects every track to live inside Artist/Album/.
+      if (rules.checks.warn_loose_files) {
+        const looseRoot = rootEntries.filter(
+          e => e.isFile() && hasExtension(e.name, config.audio_extensions)
+        )
+        if (looseRoot.length > 0) {
           warnings.add(
-            path.join(albumRel, f.name),
-            `${formatPrimaryExts(config)} audio file — may need re-encoding`,
-            ext
+            folderName,
+            `${looseRoot.length} loose audio file(s) in media folder root — Plex expects an Artist/Album/tracks structure. ` +
+              `Move tracks into Artist/Album/ subfolders. For multi-artist compilations, use 'Various Artists' as the artist folder.`
           )
         }
+      }
 
-        // Collect qualities from all audio file extensions (not just primary)
-        // e.g. album with .flac and .mp3 -> qualities = { "FLAC", "MP3" }
-        const qualities = new Set<string>()
-        for (const f of audioFiles) {
-          const ext = path.extname(f.name).slice(1).toUpperCase() // ".flac" -> "FLAC"
-          qualities.add(ext)
+      // Non-media, non-sidecar files at media folder root.
+      if (rules.checks.warn_unexpected_entries) {
+        const unexpected = findUnexpectedEntries(
+          rootEntries,
+          config.audio_extensions,
+          rules.sidecar_extensions
+        )
+        if (unexpected.length > 0) {
+          const names = unexpected.map(e => `'${e.name}'`).join(', ')
+          warnings.add(
+            folderName,
+            `Unexpected file(s) in media folder root: ${names}. Expected only Artist/ subfolders plus sidecars.`
+          )
+        }
+      }
+
+      for (const artistEntry of rootEntries) {
+        if (!artistEntry.isDirectory()) continue
+
+        const artistPath = path.join(folderPath, artistEntry.name)
+        const artistRel = path.join(folderName, artistEntry.name)
+        const artistKey = makeArtistKey(artistEntry.name)
+
+        // Artist folder validation — warnings only, do not skip the folder.
+        // Plex would still index a weirdly-named folder; users want to know.
+        if (rules.checks.warn_bad_artist_folder && !artistFolderRegex.test(artistEntry.name)) {
+          warnings.add(artistRel, `Artist folder name does not match patterns.artist_folder`)
+        }
+        if (rules.checks.warn_suspicious_folder_chars) {
+          const issues = findSuspiciousPathChars(artistEntry.name)
+          if (issues.length > 0) {
+            warnings.add(artistRel, `Suspicious characters in artist folder: ${issues.join(', ')}`)
+          }
         }
 
-        // Track numbers per disc for gap detection: { discNum: [trackNums] }
-        const discTracks = new Map<number, number[]>()
-        let trackCount = 0
+        let albumEntries: fs.Dirent[]
+        try {
+          albumEntries = fs.readdirSync(artistPath, { withFileTypes: true })
+        } catch {
+          warnings.add(artistRel, 'Permission denied reading artist folder')
+          continue
+        }
 
-        for (const f of audioFiles) {
-          const stem = path.basename(f.name, path.extname(f.name))
-          const parsed = parseTrackStem(stem)
-
-          if (!parsed) {
+        // Loose audio files at artist level — silently dropped without this
+        // check. The user's typical case: soundtracks organized as
+        // MediaFolder/AlbumName/tracks (no artist level around the album).
+        if (rules.checks.warn_loose_files) {
+          const looseArtist = albumEntries.filter(
+            e => e.isFile() && hasExtension(e.name, config.audio_extensions)
+          )
+          if (looseArtist.length > 0) {
             warnings.add(
-              path.join(albumRel, f.name),
-              'Track file name does not match Plex naming convention — ' +
-                'expected: 01 - Track Name.ext or 101 - Track Name.ext (multi-disc)'
+              artistRel,
+              `${looseArtist.length} loose audio file(s) in artist folder — Plex expects an Album subfolder around tracks. ` +
+                `Recommended fix: create an album subfolder and move tracks into it. ` +
+                `If this folder IS the album (e.g. a soundtrack), the parent (currently '${folderName}') ` +
+                `should contain an artist subfolder — either the composer name for single-composer scores, ` +
+                `or 'Various Artists' for multi-artist compilations. ` +
+                `Example: '${folderName}/Various Artists/${artistEntry.name}/01 - Track.flac'.`
             )
+          }
+        }
+
+        // Non-media, non-sidecar files in artist folder (artist.jpg etc. are
+        // sidecars and allowed; random other files are not).
+        if (rules.checks.warn_unexpected_entries) {
+          const unexpected = findUnexpectedEntries(
+            albumEntries,
+            config.audio_extensions,
+            rules.sidecar_extensions
+          )
+          if (unexpected.length > 0) {
+            const names = unexpected.map(e => `'${e.name}'`).join(', ')
+            warnings.add(
+              artistRel,
+              `Unexpected file(s) in artist folder: ${names}. Expected only Album/ subfolders plus sidecars (artist image, NFO, etc.).`
+            )
+          }
+        }
+
+        for (const albumEntry of albumEntries) {
+          if (!albumEntry.isDirectory()) continue
+
+          const albumPath = path.join(artistPath, albumEntry.name)
+          const albumRel = path.join(artistRel, albumEntry.name)
+          const albumKey = makeAlbumKey(artistEntry.name, albumEntry.name)
+
+          // Album folder validation — same approach as artist folder.
+          if (rules.checks.warn_bad_album_folder && !albumFolderRegex.test(albumEntry.name)) {
+            warnings.add(albumRel, `Album folder name does not match patterns.album_folder`)
+          }
+          if (rules.checks.warn_suspicious_folder_chars) {
+            const issues = findSuspiciousPathChars(albumEntry.name)
+            if (issues.length > 0) {
+              warnings.add(albumRel, `Suspicious characters in album folder: ${issues.join(', ')}`)
+            }
+          }
+
+          let allFiles: fs.Dirent[]
+          try {
+            allFiles = fs.readdirSync(albumPath, { withFileTypes: true })
+          } catch {
+            warnings.add(albumRel, 'Permission denied reading album folder')
             continue
           }
 
-          const { disc, track } = parsed
-          trackCount++
+          // Subfolders inside an album are silently ignored — files within
+          // would be dropped from the catalog. Plex expects flat track
+          // layout with disc-prefixed numbers for multi-disc albums.
+          if (rules.checks.warn_extra_subfolders) {
+            const subfolders = allFiles.filter(e => e.isDirectory())
+            if (subfolders.length > 0) {
+              const names = subfolders.map(s => `'${s.name}'`).join(', ')
+              warnings.add(
+                albumRel,
+                `Unexpected subfolder(s) in album folder: ${names}. ` +
+                  `Plex uses a flat track layout — for multi-disc albums, use disc-prefixed track numbers ` +
+                  `(e.g. '101 - Track.flac' for disc 1, '201 - Track.flac' for disc 2) rather than per-disc subfolders. ` +
+                  `Files inside these subfolders are not scanned.`
+              )
+            }
+          }
 
-          if (!discTracks.has(disc)) discTracks.set(disc, [])
-          discTracks.get(disc)!.push(track)
+          // Non-media, non-sidecar files in album folder (cover.jpg, .nfo
+          // allowed via sidecar list; random .zip, .txt, etc. not).
+          if (rules.checks.warn_unexpected_entries) {
+            const unexpected = findUnexpectedEntries(
+              allFiles,
+              config.audio_extensions,
+              rules.sidecar_extensions
+            )
+            if (unexpected.length > 0) {
+              const names = unexpected.map(e => `'${e.name}'`).join(', ')
+              warnings.add(
+                albumRel,
+                `Unexpected file(s) in album folder: ${names}. Expected only track files plus sidecars (cover art, NFO, lyrics).`
+              )
+            }
+          }
+
+          const audioFiles = allFiles.filter(
+            f => f.isFile() && hasExtension(f.name, config.audio_extensions)
+          )
+          const nonPrimary = audioFiles.filter(f => !isPrimary(f.name, config))
+
+          if (audioFiles.length === 0) {
+            if (rules.checks.warn_no_audio) {
+              warnings.add(albumRel, 'No recognized audio files found in album folder')
+            }
+            continue
+          }
+
+          if (rules.checks.warn_non_primary) {
+            for (const f of nonPrimary) {
+              const ext = path.extname(f.name).toLowerCase()
+              warnings.add(
+                path.join(albumRel, f.name),
+                `${formatPrimaryExts(config)} audio file — may need re-encoding`,
+                ext
+              )
+            }
+          }
+
+          // Collect qualities from all audio file extensions (not just primary)
+          // e.g. album with .flac and .mp3 -> qualities = { "FLAC", "MP3" }
+          const qualities = new Set<string>()
+          for (const f of audioFiles) {
+            const ext = path.extname(f.name).slice(1).toUpperCase()
+            qualities.add(ext)
+          }
+
+          // Track numbers per disc for gap detection: { discNum: [trackNums] }
+          const discTracks = new Map<number, number[]>()
+          let trackCount = 0
+
+          for (const f of audioFiles) {
+            const stem = path.basename(f.name, path.extname(f.name))
+            const parsed = parseTrackStem(stem, multiDiscRegex, singleDiscRegex)
+
+            if (!parsed) {
+              if (rules.checks.warn_bad_track_name) {
+                warnings.add(
+                  path.join(albumRel, f.name),
+                  'Track file name does not match Plex naming convention — ' +
+                    'expected: 01 - Track Name.ext or 101 - Track Name.ext (multi-disc)'
+                )
+              }
+              continue
+            }
+
+            const { disc, track } = parsed
+            trackCount++
+
+            if (!discTracks.has(disc)) discTracks.set(disc, [])
+            discTracks.get(disc)!.push(track)
+          }
+
+          if (rules.checks.warn_track_gaps) {
+            for (const [discNum, tracks] of [...discTracks.entries()].sort(([a], [b]) => a - b)) {
+              const gaps = findNumericGaps(tracks)
+              if (gaps.length > 0) {
+                const gapStr = gaps.map(g => `Track ${String(g).padStart(2, '0')}`).join(', ')
+                const discStr = discTracks.size > 1 ? `Disc ${discNum}` : 'Album'
+                warnings.add(albumRel, `Potential missing tracks in ${discStr}: ${gapStr}`)
+              }
+            }
+          }
+
+          if (!records.has(artistKey)) {
+            records.set(artistKey, {
+              artist: artistEntry.name,
+              albums: new Map(),
+            })
+          }
+
+          const artistRecord = records.get(artistKey)!
+
+          if (!artistRecord.albums.has(albumKey)) {
+            artistRecord.albums.set(albumKey, {
+              album: albumEntry.name,
+              track_count: trackCount,
+              qualities,
+              media_type: new Set(),
+            })
+          } else {
+            const existing = artistRecord.albums.get(albumKey)!
+            for (const q of qualities) existing.qualities.add(q)
+            existing.track_count = Math.max(existing.track_count, trackCount)
+          }
+
+          artistRecord.albums.get(albumKey)!.media_type.add(tag)
         }
+      }
 
-        // Warning: gaps in track numbers, checked per disc independently
-        for (const [discNum, tracks] of [...discTracks.entries()].sort(([a], [b]) => a - b)) {
-          const gaps = findTrackGaps(tracks)
-          if (gaps.length > 0) {
-            const gapStr = gaps.map(g => `Track ${String(g).padStart(2, '0')}`).join(', ')
-            const discStr = discTracks.size > 1 ? `Disc ${discNum}` : 'Album'
-            warnings.add(albumRel, `Potential missing tracks in ${discStr}: ${gapStr}`)
+      return records
+    },
+
+    merge(existing: Map<string, ArtistRecord>, incoming: Map<string, ArtistRecord>): void {
+      for (const [artistKey, newArtist] of incoming) {
+        if (!existing.has(artistKey)) {
+          existing.set(artistKey, newArtist)
+          continue
+        }
+        const existingArtist = existing.get(artistKey)!
+        for (const [albumKey, newAlbum] of newArtist.albums) {
+          if (!existingArtist.albums.has(albumKey)) {
+            existingArtist.albums.set(albumKey, newAlbum)
+          } else {
+            const existingAlbum = existingArtist.albums.get(albumKey)!
+            for (const q of newAlbum.qualities) existingAlbum.qualities.add(q)
+            for (const t of newAlbum.media_type) existingAlbum.media_type.add(t)
+            existingAlbum.track_count = Math.max(existingAlbum.track_count, newAlbum.track_count)
           }
         }
+      }
+    },
 
-        // Add or merge album into records
-        if (!records.has(artistKey)) {
-          records.set(artistKey, {
-            artist: artistEntry.name,
-            albums: new Map(),
-          })
-        }
+    serialize(records: Map<string, ArtistRecord>): ArtistOutput[] {
+      const orderMediaType = (mt: Set<string>) => mediaTypeOrder.filter(t => mt.has(t))
 
-        const artistRecord = records.get(artistKey)!
+      return [...records.values()]
+        .sort((a, b) => a.artist.toLowerCase().localeCompare(b.artist.toLowerCase()))
+        .map(artist => ({
+          artist: artist.artist,
+          albums: [...artist.albums.values()]
+            .sort((a, b) => a.album.toLowerCase().localeCompare(b.album.toLowerCase()))
+            .map(album => ({
+              album: album.album,
+              track_count: album.track_count,
+              qualities: [...album.qualities].sort(),
+              media_type: orderMediaType(album.media_type),
+            })),
+        }))
+    },
 
-        if (!artistRecord.albums.has(albumKey)) {
-          artistRecord.albums.set(albumKey, {
-            album: albumEntry.name,
-            track_count: trackCount,
-            qualities,
-            media_type: new Set(),
-          })
-        } else {
-          // Album already exists from a previous media folder — merge
-          const existing = artistRecord.albums.get(albumKey)!
-          for (const q of qualities) existing.qualities.add(q)
-          existing.track_count = Math.max(existing.track_count, trackCount)
-        }
+    /**
+     * Post-merge check: emit one warning per album that ended up in multiple
+     * media folders. Runs once after all folders are scanned.
+     */
+    postScan(records: Map<string, ArtistRecord>, warnings: WarningCollector): void {
+      if (!rules.checks.warn_duplicate_album) return
 
-        artistRecord.albums.get(albumKey)!.media_type.add(tag)
-
-        // Warning: same album found in more than one media folder
-        const albumRecord = artistRecord.albums.get(albumKey)!
-        if (albumRecord.media_type.size > 1) {
-          const existingTags = [...albumRecord.media_type].sort().join(', ')
+      for (const artist of records.values()) {
+        for (const album of artist.albums.values()) {
+          if (album.media_type.size <= 1) continue
+          const tags = mediaTypeOrder.filter(t => album.media_type.has(t)).join(', ')
           warnings.add(
-            path.join(folderName, artistEntry.name, albumEntry.name),
-            `Duplicate album found in multiple media folders: ${existingTags}`
+            path.join(artist.artist, album.album),
+            `Duplicate album found in multiple media folders: ${tags}`
           )
         }
       }
-    }
-
-    return records
-  },
-
-  /** Merge artist records — handles nested albums */
-  merge(existing: Map<string, ArtistRecord>, incoming: Map<string, ArtistRecord>): void {
-    for (const [artistKey, newArtist] of incoming) {
-      if (!existing.has(artistKey)) {
-        existing.set(artistKey, newArtist)
-        continue
-      }
-      const existingArtist = existing.get(artistKey)!
-      for (const [albumKey, newAlbum] of newArtist.albums) {
-        if (!existingArtist.albums.has(albumKey)) {
-          existingArtist.albums.set(albumKey, newAlbum)
-        } else {
-          const existingAlbum = existingArtist.albums.get(albumKey)!
-          for (const q of newAlbum.qualities) existingAlbum.qualities.add(q)
-          for (const t of newAlbum.media_type) existingAlbum.media_type.add(t)
-          existingAlbum.track_count = Math.max(existingAlbum.track_count, newAlbum.track_count)
-        }
-      }
-    }
-  },
-
-  serialize(records: Map<string, ArtistRecord>): ArtistOutput[] {
-    const orderMediaType = (mt: Set<string>) => mediaTypeOrder.filter(t => mt.has(t))
-
-    return [...records.values()]
-      .sort((a, b) => a.artist.toLowerCase().localeCompare(b.artist.toLowerCase()))
-      .map(artist => ({
-        artist: artist.artist,
-        albums: [...artist.albums.values()]
-          .sort((a, b) => a.album.toLowerCase().localeCompare(b.album.toLowerCase()))
-          .map(album => ({
-            album: album.album,
-            track_count: album.track_count,
-            qualities: [...album.qualities].sort(), // Alphabetical — no config order
-            media_type: orderMediaType(album.media_type),
-          })),
-      }))
-  },
+    },
+  }
 }

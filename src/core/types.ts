@@ -31,7 +31,8 @@ export interface MoviesConfig extends BaseMediaConfig {
 /** Config section for shows */
 export interface ShowsConfig extends BaseMediaConfig {
   video_extensions: string[]
-  ignored_season_names: string[] // e.g. ["Specials", "Champion of Champions"]
+  // ignored_season_names moved to rules/shows.yaml (it's a Plex naming
+  // convention, not a per-user library path). See src/core/rules/shows.ts.
 }
 
 /** Config section for music */

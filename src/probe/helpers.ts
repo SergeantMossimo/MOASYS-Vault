@@ -1,0 +1,160 @@
+/**
+ * probe/helpers.ts
+ * ----------------
+ * Shared helpers used by every per-media-type probe module.
+ *
+ * Provides:
+ *   - probeOrCache(): single-file probe that consults the cache first
+ *   - probeBatch(): runs a list of probe tasks sequentially with progress
+ *   - classifyQuality(): maps a file's dimensions to a quality_thresholds bucket
+ *     and reports whether it fits the folder's expected bucket
+ *
+ * Probing is sequential, not parallel. ffprobe is mostly disk-bound, and on
+ * spinning rust parallelism can thrash seeks. If this becomes a real bottleneck
+ * on SSD-backed libraries we can add bounded concurrency later — but cached
+ * runs are basically instant, so the slow case is only the first scan.
+ */
+
+import { probeFile } from './ffprobe'
+import { ProbeCache } from './cache'
+import { ProbeData } from './types'
+
+// ─────────────────────────────────────────────
+// Probe tasks
+// ─────────────────────────────────────────────
+
+/**
+ * One file to probe, with everything needed for caching and downstream use.
+ * Path fields are split so we cache by the cross-platform relative form but
+ * spawn ffprobe with the absolute one.
+ */
+export interface ProbeTask {
+  /** Path relative to the media root, e.g. "UHD/The Crow (1994)/The Crow (1994).mp4" */
+  relativePath: string
+  /** Absolute path used to spawn ffprobe */
+  absolutePath: string
+  /** Folder tag from config.json — used for quality_threshold lookup */
+  folderTag: string
+  /** File mtime in ms (cache key) */
+  mtime: number
+  /** File size in bytes (cache key) */
+  size: number
+}
+
+/** A probe task and its result, paired for downstream aggregation. */
+export interface ProbedFile {
+  task: ProbeTask
+  data: ProbeData
+}
+
+// ─────────────────────────────────────────────
+// Probing
+// ─────────────────────────────────────────────
+
+/**
+ * Return cached probe data when fresh, otherwise spawn ffprobe and cache the result.
+ * Errors propagate — callers decide whether to warn or abort.
+ */
+export async function probeOrCache(task: ProbeTask, cache: ProbeCache): Promise<ProbeData> {
+  const cached = cache.get(task.relativePath, task.mtime, task.size)
+  if (cached) return cached
+  const data = await probeFile(task.absolutePath)
+  cache.set(task.relativePath, task.mtime, task.size, data)
+  return data
+}
+
+/**
+ * Probe a list of files sequentially, reporting progress via callback.
+ * Individual file errors are swallowed and logged — one corrupt file
+ * shouldn't take down a whole library scan. Failed files are excluded
+ * from the returned results.
+ */
+export async function probeBatch(
+  tasks: ProbeTask[],
+  cache: ProbeCache,
+  onProgress?: (done: number, total: number, cached: number) => void
+): Promise<ProbedFile[]> {
+  const results: ProbedFile[] = []
+  let cachedCount = 0
+
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i]!
+    try {
+      // Detect cache hit before calling probeOrCache so we can count it.
+      const wasCached = cache.get(task.relativePath, task.mtime, task.size) !== null
+      const data = await probeOrCache(task, cache)
+      if (wasCached) cachedCount++
+      results.push({ task, data })
+    } catch (err) {
+      console.error(`    [PROBE] Failed: ${task.relativePath} — ${(err as Error).message}`)
+    }
+    onProgress?.(i + 1, tasks.length, cachedCount)
+  }
+
+  return results
+}
+
+// ─────────────────────────────────────────────
+// Quality classification
+// ─────────────────────────────────────────────
+
+/**
+ * Shape of one quality_threshold bucket in the rules.
+ * Replicated here as a structural interface so this module doesn't have
+ * to import from src/core/rules — both rules schemas (movies and shows)
+ * use the same bucket shape, and we only consume four fields.
+ */
+export interface QualityBucket {
+  name: string
+  tags: string[]
+  min_width?: number
+  max_width?: number
+}
+
+/**
+ * Result of checking one file's dimensions against the quality bucket
+ * defined for its folder tag.
+ *
+ * `bucket` is null when no bucket lists this tag (we silently pass).
+ * `fits` indicates whether the file's long edge falls in the bucket's range.
+ * The caller decides whether `!fits` should emit a warning.
+ */
+export interface QualityClassification {
+  bucket: QualityBucket | null
+  longEdge: number
+  fits: boolean
+}
+
+/** Find the quality bucket that contains a given folder tag, or null. */
+function findBucket(tag: string, buckets: QualityBucket[]): QualityBucket | null {
+  return buckets.find(b => b.tags.includes(tag)) ?? null
+}
+
+/**
+ * Check a video file's dimensions against the quality bucket for its folder.
+ *
+ * Uses the long edge (max of width and height) so a rotated or unusually
+ * shaped file is classified by its largest dimension — a 1080x1920 vertical
+ * file still counts as HD.
+ *
+ * Cropped HandBrake outputs work too: a 664x448 SD file has a long edge of
+ * 664, well under the typical SD max_width of 1000.
+ */
+export function classifyQuality(
+  width: number,
+  height: number,
+  folderTag: string,
+  buckets: QualityBucket[]
+): QualityClassification {
+  const bucket = findBucket(folderTag, buckets)
+  const longEdge = Math.max(width, height)
+
+  if (bucket === null) {
+    return { bucket: null, longEdge, fits: true }
+  }
+
+  const overMin = bucket.min_width === undefined || longEdge >= bucket.min_width
+  const underMax = bucket.max_width === undefined || longEdge <= bucket.max_width
+
+  return { bucket, longEdge, fits: overMin && underMax }
+}

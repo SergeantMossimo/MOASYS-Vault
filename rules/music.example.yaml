@@ -1,0 +1,61 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MOASYS-Vault — Music rules (example)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# To customize: copy this file to rules/music.yaml and edit. Anything you
+# leave out falls back to the code defaults in src/core/rules/music.ts.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Patterns. All use named capture groups (the scanner reads `match.groups`).
+# Each can be a plain string or an object with `pattern` + `flags`.
+#
+# Folder patterns:
+#   Plex itself doesn't specify a required format for artist or album folders.
+#   The defaults below match anything non-empty so the warning only fires when
+#   you tighten the regex. Override these if your library uses a stricter
+#   convention — e.g. "every album folder must include the year in parens".
+#
+# Track file patterns:
+#   Defaults match Plex's documented conventions:
+#     "01 - Track Name"           ← single disc
+#     "101 - Track Name"          ← multi-disc: disc 1, track 1
+#     "201 - Track Name"          ← multi-disc: disc 2, track 1
+#   The scanner tries multi_disc first (more specific), then single_disc.
+patterns:
+  artist_folder: '^(?<name>.+)$'
+  album_folder: '^(?<name>.+)$'
+
+  # Tighter album_folder example — uncomment if you keep year in folder names:
+  # album_folder: '^(?<name>.+) \((?<year>\d{4})\)$'
+
+  single_disc: '^(?<track>\d{2})\s-\s(?<name>.+)$'
+  multi_disc: '^(?<disc>\d+)(?<track>\d{2})\s-\s(?<name>.+)$'
+
+# File extensions silently allowed alongside audio files anywhere in the
+# hierarchy. These are recognized sidecars (cover art, NFO, lyrics, cuesheets,
+# liner notes). Add '.txt' if you want personal liner-note text files silenced.
+sidecar_extensions:
+  - .nfo
+  - .jpg
+  - .jpeg
+  - .png
+  - .webp
+  - .lrc
+  - .cue
+  - .m3u
+  - .m3u8
+  - .pdf
+
+# Per-warning toggles. All warnings ship enabled by default.
+checks:
+  warn_non_primary: true              # Non-primary audio file (e.g. .mp3 when primary is .flac)
+  warn_no_audio: true                 # Album folder has no recognized audio files
+  warn_bad_track_name: true           # Track file name doesn't match any pattern
+  warn_bad_artist_folder: true        # Artist folder name doesn't match patterns.artist_folder
+  warn_bad_album_folder: true         # Album folder name doesn't match patterns.album_folder
+  warn_suspicious_folder_chars: true  # Trailing whitespace, Windows-illegal chars, etc. in artist/album folder names
+  warn_track_gaps: true               # Gap detected in track numbers (per-disc)
+  warn_duplicate_album: true          # Same artist + album found in more than one media folder
+  warn_loose_files: true              # Audio files at unexpected nesting (e.g. directly in a media folder or directly in an artist folder with no Album subfolder)
+  warn_extra_subfolders: true         # Unexpected subfolders inside an album folder — use disc-prefixed track numbers (101, 201) for multi-disc albums instead
+  warn_unexpected_entries: true       # Files that aren't audio, aren't recognized sidecars, and aren't known OS artifacts

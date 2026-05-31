@@ -1,0 +1,17 @@
+# Personal override for the Movies rules.
+# Currently configures quality_thresholds for the ffprobe pass —
+# everything else falls back to the code defaults in src/core/rules/movies.ts.
+#
+# See rules/movies.example.yaml for all available options.
+
+quality_thresholds:
+  - name: UHD
+    tags: [UHD, "Other UHD"]
+    min_width: 2000
+  - name: HD
+    tags: [HD, "Other HD"]
+    min_width: 1000
+    max_width: 2000
+  - name: SD
+    tags: [SD, "Other SD"]
+    max_width: 1000
