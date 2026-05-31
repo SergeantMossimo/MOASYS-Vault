@@ -18,37 +18,69 @@ import path from 'path'
 
 import { AppConfig, BaseMediaConfig, MediaModule, WarningCollector } from './core/types'
 import { scan, writeJson, writeWarnings } from './core/scanner'
+import { loadRules } from './core/rules/loader'
 
-import { moviesModule } from './media/movies'
-import { showsModule } from './media/shows'
-import { musicModule } from './media/music'
-import { audiobooksModule } from './media/audiobooks'
+import { createMoviesModule } from './media/movies'
+import { createShowsModule } from './media/shows'
+import { createMusicModule } from './media/music'
+import { createAudiobooksModule } from './media/audiobooks'
+
+import { MoviesRulesSchema, defaultMoviesRules } from './core/rules/movies'
+import { ShowsRulesSchema, defaultShowsRules } from './core/rules/shows'
+import { MusicRulesSchema, defaultMusicRules } from './core/rules/music'
+import { AudiobooksRulesSchema, defaultAudiobooksRules } from './core/rules/audiobooks'
 
 // ─────────────────────────────────────────────
 // Config
 // ─────────────────────────────────────────────
 
-// __dirname gives us the directory of this script file, so all paths
-// are relative to wherever the project folder lives on your machine.
-// We go up one level from src/ to reach the project root where config.json lives.
 const SCRIPT_DIR = path.join(__dirname, '..')
 const CONFIG_PATH = path.join(SCRIPT_DIR, 'config.json')
 const OUTPUT_DIR = path.join(SCRIPT_DIR, 'output')
 
-// Load config.json once at startup — typed as AppConfig so the compiler
-// catches any mismatch between the config shape and what the modules expect
 const CONFIG: AppConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'))
+
+// ─────────────────────────────────────────────
+// Rules loading
+// ─────────────────────────────────────────────
+
+// Rules describe library conventions (regex patterns, year ranges, which
+// warnings to emit). Loaded once at boot per media type. Each call returns
+// either the code defaults or a deep-merge of the user's rules/<type>.yaml
+// overrides on top of them. Validated through Zod, so any error here is
+// caught before scanning starts.
+const moviesRules = loadRules({
+  mediaType: 'movies',
+  schema: MoviesRulesSchema,
+  defaults: defaultMoviesRules,
+  projectRoot: SCRIPT_DIR,
+})
+
+const showsRules = loadRules({
+  mediaType: 'shows',
+  schema: ShowsRulesSchema,
+  defaults: defaultShowsRules,
+  projectRoot: SCRIPT_DIR,
+})
+
+const musicRules = loadRules({
+  mediaType: 'music',
+  schema: MusicRulesSchema,
+  defaults: defaultMusicRules,
+  projectRoot: SCRIPT_DIR,
+})
+
+const audiobooksRules = loadRules({
+  mediaType: 'audiobooks',
+  schema: AudiobooksRulesSchema,
+  defaults: defaultAudiobooksRules,
+  projectRoot: SCRIPT_DIR,
+})
 
 // ─────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────
 
-/**
- * A single entry in the media type registry.
- * Binding TRecord, TOutput, and TConfig together here means the compiler
- * can verify that module, config, and records all match each other —
- * no need for `any` casts anywhere in runScan().
- */
 interface MediaTypeEntry<TRecord, TOutput, TConfig extends BaseMediaConfig> {
   module: MediaModule<TRecord, TOutput, TConfig>
   config: TConfig
@@ -56,11 +88,6 @@ interface MediaTypeEntry<TRecord, TOutput, TConfig extends BaseMediaConfig> {
   label: string
 }
 
-/**
- * Helper that creates a MediaTypeEntry with its generics fully inferred.
- * Without this, TypeScript can't infer TRecord/TOutput from the module alone
- * and we'd need to spell them out manually on every registry entry.
- */
 function makeEntry<TRecord, TOutput, TConfig extends BaseMediaConfig>(
   entry: MediaTypeEntry<TRecord, TOutput, TConfig>
 ): MediaTypeEntry<TRecord, TOutput, TConfig> {
@@ -73,30 +100,31 @@ function makeEntry<TRecord, TOutput, TConfig extends BaseMediaConfig>(
 
 // Registry of all supported media types.
 // To add a new type in the future:
-//   1. Create src/media/newtype.ts implementing MediaModule<TRecord, TOutput, TConfig>
-//   2. Import it above
-//   3. Add an entry here using makeEntry() — TypeScript will enforce the correct shape
+//   1. Create src/media/newtype.ts exporting a createNewtypeModule(rules) factory
+//   2. Create src/core/rules/newtype.ts with schema + defaults
+//   3. Import both above and load the rules with loadRules()
+//   4. Add an entry here using makeEntry() — TypeScript enforces the shape
 const MEDIA_TYPES = {
   movies: makeEntry({
-    module: moviesModule,
+    module: createMoviesModule(moviesRules),
     config: CONFIG.movies,
     outputDir: path.join(OUTPUT_DIR, 'movies'),
     label: 'Movies',
   }),
   shows: makeEntry({
-    module: showsModule,
+    module: createShowsModule(showsRules),
     config: CONFIG.shows,
     outputDir: path.join(OUTPUT_DIR, 'shows'),
     label: 'Shows',
   }),
   music: makeEntry({
-    module: musicModule,
+    module: createMusicModule(musicRules),
     config: CONFIG.music,
     outputDir: path.join(OUTPUT_DIR, 'music'),
     label: 'Music',
   }),
   audiobooks: makeEntry({
-    module: audiobooksModule,
+    module: createAudiobooksModule(audiobooksRules),
     config: CONFIG.audiobooks,
     outputDir: path.join(OUTPUT_DIR, 'audiobooks'),
     label: 'Audiobooks',
@@ -109,11 +137,6 @@ type MediaType = keyof typeof MEDIA_TYPES
 // Runner
 // ─────────────────────────────────────────────
 
-/**
- * Run a full scan for a single media type and write all output files.
- * The generic parameters flow through from the registry entry so the compiler
- * can verify that module, config, and records all match each other.
- */
 function runScan<TRecord, TOutput, TConfig extends BaseMediaConfig>(
   mediaType: MediaType,
   entry: MediaTypeEntry<TRecord, TOutput, TConfig>
@@ -125,20 +148,14 @@ function runScan<TRecord, TOutput, TConfig extends BaseMediaConfig>(
   console.log(`\n  Root : ${entry.config.root_path}`)
   console.log()
 
-  // Set the tag order so qualities and media_type appear in config-defined order
   entry.module.initTagOrder(entry.config.media_folders)
 
-  // Create the output folder if it doesn't already exist
-  // recursive: true means no error if the folder is already there
   fs.mkdirSync(entry.outputDir, { recursive: true })
 
-  // WarningCollector accumulates issues found during scanning
   const warnings = new WarningCollector()
 
-  // Walk the media folders and return a Map of records
   const records = scan(entry.config, entry.module, warnings)
 
-  // Write output files
   console.log('\n  Writing output...')
   writeJson(records, entry.module, path.join(entry.outputDir, `${mediaType}.json`))
   writeWarnings(warnings, path.join(entry.outputDir, 'warnings.json'))
@@ -153,10 +170,6 @@ function runScan<TRecord, TOutput, TConfig extends BaseMediaConfig>(
 // CLI
 // ─────────────────────────────────────────────
 
-/**
- * Type-safe dispatcher — each branch narrows the union type so
- * runScan's generics resolve correctly without any casts.
- */
 function dispatchScan(mediaType: MediaType): void {
   switch (mediaType) {
     case 'movies':
@@ -171,8 +184,6 @@ function dispatchScan(mediaType: MediaType): void {
 }
 
 function main(): void {
-  // process.argv = ["node", "scan.ts", ...your args]
-  // slice(2) strips "node" and the script path, leaving just the flags you passed
   const args = process.argv.slice(2)
   const flag = args[0]
   const value = args[1]
@@ -183,7 +194,6 @@ function main(): void {
   }
 
   if (flag === '--all') {
-    // Scan every registered media type in order
     for (const mediaType of Object.keys(MEDIA_TYPES) as MediaType[]) {
       dispatchScan(mediaType)
     }

@@ -3,7 +3,7 @@
  * -------------------
  * Audiobook-specific parsing, serialization, and DB logic for MOASYS-Vault.
  *
- * Expected folder structure:
+ * Expected folder structure (default rules):
  *   <media_folder>/
  *     <Author Name>/                          ← single author
  *     <Author 1, Author 2>/                   ← multiple authors, comma-separated
@@ -11,6 +11,11 @@
  *       <Book Title>/
  *         01 - Chapter Name.m4b
  *         101 - Chapter Name.mp3   ← multi-disc (Book On CD)
+ *
+ * Chapter patterns come from src/core/rules/audiobooks.ts (with optional
+ * YAML overrides in rules/audiobooks.yaml).
+ *
+ * Author folder parsing lives in code below — see parseAuthors().
  */
 
 import fs from 'fs'
@@ -24,36 +29,14 @@ import {
   WarningCollector,
   MediaModule,
 } from '../core/types'
-
-// ─────────────────────────────────────────────
-// Regex patterns
-// ─────────────────────────────────────────────
-
-// Matches standard chapter file stems: "01 - Chapter Name"
-// Group 1 = chapter number (2 digits), Group 2 = chapter name
-const SINGLE_DISC_PATTERN = /^(\d{2})\s-\s(.+)$/
-
-// Matches multi-disc chapter file stems: "101 - Chapter Name", "201 - Chapter Name"
-// Group 1 = disc number, Group 2 = chapter number (2 digits), Group 3 = chapter name
-const MULTI_DISC_PATTERN = /^(\d+)(\d{2})\s-\s(.+)$/
+import { hasExtension, isPrimary, formatPrimaryExts, findUnexpectedEntries } from '../core/files'
+import { findNumericGaps } from '../core/gaps'
+import { AudiobooksRules } from '../core/rules/audiobooks'
+import { compilePattern } from '../core/rules/helpers'
 
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
-
-function isAudio(filename: string, config: AudiobooksConfig): boolean {
-  const ext = path.extname(filename).toLowerCase()
-  return config.audio_extensions.map(e => e.toLowerCase()).includes(ext)
-}
-
-function isPrimary(filename: string, config: AudiobooksConfig): boolean {
-  const ext = path.extname(filename).toLowerCase()
-  return config.primary_extension.map(e => e.toLowerCase()).includes(ext)
-}
-
-function formatPrimaryExts(config: AudiobooksConfig): string {
-  return 'Non-' + config.primary_extension.map(e => e.toUpperCase()).join('/')
-}
 
 /**
  * Parse an author folder name into a list of individual author names.
@@ -65,7 +48,6 @@ function formatPrimaryExts(config: AudiobooksConfig): string {
  * Strategy: strip " and " before the last author, then split on commas.
  */
 function parseAuthors(folderName: string): string[] {
-  // Remove " and " (with optional leading comma) before the last author
   const cleaned = folderName.replace(/,?\s+and\s+/gi, ', ')
   return cleaned
     .split(',')
@@ -75,221 +57,308 @@ function parseAuthors(folderName: string): string[] {
 
 /**
  * Parse a chapter file stem into { disc, chapter, name } or null.
- * Single-disc files (01 - Name) are treated as disc 1.
- * Multi-disc files (101 - Name) extract the disc from leading digit(s).
+ * Tries the multi-disc pattern first (more specific), then single-disc as fallback.
+ * Single-disc files (e.g. "01 - Chapter Name") are treated as disc 1.
  */
-function parseChapterStem(stem: string): { disc: number; chapter: number; name: string } | null {
-  // Try multi-disc first — it's more specific
-  let m = MULTI_DISC_PATTERN.exec(stem)
-  if (m) {
-    return {
-      disc: parseInt(m[1]!, 10),
-      chapter: parseInt(m[2]!, 10),
-      name: m[3]!.trim(),
+function parseChapterStem(
+  stem: string,
+  multiDiscRegex: RegExp,
+  singleDiscRegex: RegExp
+): { disc: number; chapter: number; name: string } | null {
+  const mm = multiDiscRegex.exec(stem)
+  if (mm?.groups) {
+    const { disc, chapter, name } = mm.groups
+    if (disc !== undefined && chapter !== undefined && name !== undefined) {
+      return { disc: parseInt(disc, 10), chapter: parseInt(chapter, 10), name: name.trim() }
     }
   }
-  // Fall back to single-disc (treat as disc 1)
-  m = SINGLE_DISC_PATTERN.exec(stem)
-  if (m) {
-    return { disc: 1, chapter: parseInt(m[1]!, 10), name: m[2]!.trim() }
+  const sm = singleDiscRegex.exec(stem)
+  if (sm?.groups) {
+    const { chapter, name } = sm.groups
+    if (chapter !== undefined && name !== undefined) {
+      return { disc: 1, chapter: parseInt(chapter, 10), name: name.trim() }
+    }
   }
   return null
 }
 
-/**
- * Build a unique Map key for a book.
- * Keyed by title only — not author + title — because books are the
- * top-level item in the output and authors are stored as an array field.
- */
 function makeBookKey(title: string): string {
   return title.toLowerCase()
 }
 
-/**
- * Find gaps in chapter numbers for a single disc.
- * Example: [1, 2, 4] -> [3]
- */
-function findChapterGaps(numbers: number[]): number[] {
-  if (numbers.length === 0) return []
-  const min = Math.min(...numbers)
-  const max = Math.max(...numbers)
-  const gaps = []
-  for (let i = min; i <= max; i++) {
-    if (!numbers.includes(i)) gaps.push(i)
-  }
-  return gaps
-}
-
 // ─────────────────────────────────────────────
-// Media type order
+// Factory
 // ─────────────────────────────────────────────
 
-let mediaTypeOrder: string[] = []
+export function createAudiobooksModule(
+  rules: AudiobooksRules
+): MediaModule<BookRecord, BookOutput, AudiobooksConfig> {
+  const multiDiscRegex = compilePattern(rules.patterns.multi_disc)
+  const singleDiscRegex = compilePattern(rules.patterns.single_disc)
 
-// ─────────────────────────────────────────────
-// Media module implementation
-// ─────────────────────────────────────────────
+  let mediaTypeOrder: string[] = []
 
-export const audiobooksModule: MediaModule<BookRecord, BookOutput, AudiobooksConfig> = {
-  initTagOrder(mediaFolders: MediaFolder[]): void {
-    mediaTypeOrder = mediaFolders.map(mf => mf.tag)
-  },
+  return {
+    initTagOrder(mediaFolders: MediaFolder[]): void {
+      mediaTypeOrder = mediaFolders.map(mf => mf.tag)
+    },
 
-  scanMediaFolder(
-    folderPath: string,
-    folderName: string,
-    tag: string,
-    config: AudiobooksConfig,
-    warnings: WarningCollector
-  ): Map<string, BookRecord> {
-    const records = new Map<string, BookRecord>()
+    scanMediaFolder(
+      folderPath: string,
+      folderName: string,
+      tag: string,
+      config: AudiobooksConfig,
+      warnings: WarningCollector
+    ): Map<string, BookRecord> {
+      const records = new Map<string, BookRecord>()
 
-    // Each subfolder inside the media folder should be an author folder
-    for (const authorEntry of fs.readdirSync(folderPath, {
-      withFileTypes: true,
-    })) {
-      if (!authorEntry.isDirectory()) continue
+      const rootEntries = fs.readdirSync(folderPath, { withFileTypes: true })
 
-      const authorPath = path.join(folderPath, authorEntry.name)
-      const authorRel = path.join(folderName, authorEntry.name)
-
-      // Parse the folder name into a list of authors
-      // e.g. "Terry Pratchett, Neil Gaiman" -> ["Terry Pratchett", "Neil Gaiman"]
-      const authors = parseAuthors(authorEntry.name)
-
-      let bookEntries: fs.Dirent[]
-      try {
-        bookEntries = fs.readdirSync(authorPath, { withFileTypes: true })
-      } catch {
-        warnings.add(authorRel, 'Permission denied reading author folder')
-        continue
-      }
-
-      for (const bookEntry of bookEntries) {
-        if (!bookEntry.isDirectory()) continue // Skip loose files (e.g. author photo)
-
-        const bookPath = path.join(authorPath, bookEntry.name)
-        const bookRel = path.join(authorRel, bookEntry.name)
-        const bookKey = makeBookKey(bookEntry.name)
-
-        let allFiles: fs.Dirent[]
-        try {
-          allFiles = fs.readdirSync(bookPath, { withFileTypes: true })
-        } catch {
-          warnings.add(bookRel, 'Permission denied reading book folder')
-          continue
-        }
-
-        const audioFiles = allFiles.filter(f => f.isFile() && isAudio(f.name, config))
-        const nonPrimary = audioFiles.filter(f => !isPrimary(f.name, config))
-
-        // Warning: no audio files at all in this book folder
-        if (audioFiles.length === 0) {
-          warnings.add(bookRel, 'No recognized audio files found in book folder')
-          continue
-        }
-
-        // Warning: non-primary audio files present
-        for (const f of nonPrimary) {
-          const ext = path.extname(f.name).toLowerCase()
+      // Loose audio files at media folder level — silently dropped without
+      // this check. Expected structure: Author/Book/chapters.
+      if (rules.checks.warn_loose_files) {
+        const looseRoot = rootEntries.filter(
+          e => e.isFile() && hasExtension(e.name, config.audio_extensions)
+        )
+        if (looseRoot.length > 0) {
           warnings.add(
-            path.join(bookRel, f.name),
-            `${formatPrimaryExts(config)} audio file — may need re-encoding`,
-            ext
+            folderName,
+            `${looseRoot.length} loose audio file(s) in media folder root — expected an Author/Book/chapters structure. ` +
+              `Move chapters into Author/Book/ subfolders.`
           )
         }
+      }
 
-        // Track chapter numbers per disc for gap detection: { discNum: [chapterNums] }
-        const discChapters = new Map<number, number[]>()
-        let chapterCount = 0
+      // Non-media, non-sidecar files at media folder root.
+      if (rules.checks.warn_unexpected_entries) {
+        const unexpected = findUnexpectedEntries(
+          rootEntries,
+          config.audio_extensions,
+          rules.sidecar_extensions
+        )
+        if (unexpected.length > 0) {
+          const names = unexpected.map(e => `'${e.name}'`).join(', ')
+          warnings.add(
+            folderName,
+            `Unexpected file(s) in media folder root: ${names}. Expected only Author/ subfolders plus sidecars.`
+          )
+        }
+      }
 
-        for (const f of audioFiles) {
-          const stem = path.basename(f.name, path.extname(f.name))
-          const parsed = parseChapterStem(stem)
+      for (const authorEntry of rootEntries) {
+        if (!authorEntry.isDirectory()) continue
 
-          // Warning: file name doesn't match naming convention
-          if (!parsed) {
+        const authorPath = path.join(folderPath, authorEntry.name)
+        const authorRel = path.join(folderName, authorEntry.name)
+        const authors = parseAuthors(authorEntry.name)
+
+        let bookEntries: fs.Dirent[]
+        try {
+          bookEntries = fs.readdirSync(authorPath, { withFileTypes: true })
+        } catch {
+          warnings.add(authorRel, 'Permission denied reading author folder')
+          continue
+        }
+
+        // Loose audio files in author folder (no Book subfolder around them)
+        // — silently dropped from the catalog without this check.
+        if (rules.checks.warn_loose_files) {
+          const looseAuthor = bookEntries.filter(
+            e => e.isFile() && hasExtension(e.name, config.audio_extensions)
+          )
+          if (looseAuthor.length > 0) {
             warnings.add(
-              path.join(bookRel, f.name),
-              'Chapter file name does not match naming convention — ' +
-                'expected: 01 - Chapter Name.ext or 101 - Chapter Name.ext (multi-disc)'
+              authorRel,
+              `${looseAuthor.length} loose audio file(s) in author folder — expected a Book subfolder around chapters. ` +
+                `Create a book subfolder and move chapters into it.`
             )
+          }
+        }
+
+        // Non-media, non-sidecar files in author folder (author image, NFO).
+        if (rules.checks.warn_unexpected_entries) {
+          const unexpected = findUnexpectedEntries(
+            bookEntries,
+            config.audio_extensions,
+            rules.sidecar_extensions
+          )
+          if (unexpected.length > 0) {
+            const names = unexpected.map(e => `'${e.name}'`).join(', ')
+            warnings.add(
+              authorRel,
+              `Unexpected file(s) in author folder: ${names}. Expected only Book/ subfolders plus sidecars.`
+            )
+          }
+        }
+
+        for (const bookEntry of bookEntries) {
+          if (!bookEntry.isDirectory()) continue
+
+          const bookPath = path.join(authorPath, bookEntry.name)
+          const bookRel = path.join(authorRel, bookEntry.name)
+          const bookKey = makeBookKey(bookEntry.name)
+
+          let allFiles: fs.Dirent[]
+          try {
+            allFiles = fs.readdirSync(bookPath, { withFileTypes: true })
+          } catch {
+            warnings.add(bookRel, 'Permission denied reading book folder')
             continue
           }
 
-          const { disc, chapter } = parsed
-          chapterCount++
-
-          if (!discChapters.has(disc)) discChapters.set(disc, [])
-          discChapters.get(disc)!.push(chapter)
-        }
-
-        // Warning: gaps in chapter numbers, checked per disc independently
-        for (const [discNum, chapters] of [...discChapters.entries()].sort(([a], [b]) => a - b)) {
-          const gaps = findChapterGaps(chapters)
-          if (gaps.length > 0) {
-            const gapStr = gaps.map(g => `Chapter ${String(g).padStart(2, '0')}`).join(', ')
-            const discStr = discChapters.size > 1 ? `Disc ${discNum}` : 'Book'
-            warnings.add(bookRel, `Potential missing chapters in ${discStr}: ${gapStr}`)
+          // Subfolders inside a book are silently ignored — chapters in
+          // them would be dropped. Multi-disc books should use disc-prefixed
+          // chapter numbers (101, 201) in a flat layout.
+          if (rules.checks.warn_extra_subfolders) {
+            const subfolders = allFiles.filter(e => e.isDirectory())
+            if (subfolders.length > 0) {
+              const names = subfolders.map(s => `'${s.name}'`).join(', ')
+              warnings.add(
+                bookRel,
+                `Unexpected subfolder(s) in book folder: ${names}. ` +
+                  `Expected a flat chapter layout — for multi-disc books, use disc-prefixed numbers ` +
+                  `(e.g. '101 - Chapter.mp3' for disc 1, '201 - Chapter.mp3' for disc 2). ` +
+                  `Files inside these subfolders are not scanned.`
+              )
+            }
           }
-        }
 
-        // Add or merge book into records
-        if (!records.has(bookKey)) {
-          records.set(bookKey, {
-            title: bookEntry.name,
-            authors,
-            chapter_count: chapterCount,
-            media_type: new Set(),
-          })
-        } else {
-          // Book already exists — update chapter count if higher
-          records.get(bookKey)!.chapter_count = Math.max(
-            records.get(bookKey)!.chapter_count,
-            chapterCount
+          // Non-media, non-sidecar files in book folder.
+          if (rules.checks.warn_unexpected_entries) {
+            const unexpected = findUnexpectedEntries(
+              allFiles,
+              config.audio_extensions,
+              rules.sidecar_extensions
+            )
+            if (unexpected.length > 0) {
+              const names = unexpected.map(e => `'${e.name}'`).join(', ')
+              warnings.add(
+                bookRel,
+                `Unexpected file(s) in book folder: ${names}. Expected only chapter files plus sidecars.`
+              )
+            }
+          }
+
+          const audioFiles = allFiles.filter(
+            f => f.isFile() && hasExtension(f.name, config.audio_extensions)
           )
-        }
+          const nonPrimary = audioFiles.filter(f => !isPrimary(f.name, config))
 
-        records.get(bookKey)!.media_type.add(tag)
+          if (audioFiles.length === 0) {
+            if (rules.checks.warn_no_audio) {
+              warnings.add(bookRel, 'No recognized audio files found in book folder')
+            }
+            continue
+          }
 
-        // Warning: same book title found in more than one media folder
-        if (records.get(bookKey)!.media_type.size > 1) {
-          const existingTags = [...records.get(bookKey)!.media_type].sort().join(', ')
-          warnings.add(bookRel, `Duplicate book found in multiple media folders: ${existingTags}`)
+          if (rules.checks.warn_non_primary) {
+            for (const f of nonPrimary) {
+              const ext = path.extname(f.name).toLowerCase()
+              warnings.add(
+                path.join(bookRel, f.name),
+                `${formatPrimaryExts(config)} audio file — may need re-encoding`,
+                ext
+              )
+            }
+          }
+
+          // Chapter numbers per disc for gap detection: { discNum: [chapterNums] }
+          const discChapters = new Map<number, number[]>()
+          let chapterCount = 0
+
+          for (const f of audioFiles) {
+            const stem = path.basename(f.name, path.extname(f.name))
+            const parsed = parseChapterStem(stem, multiDiscRegex, singleDiscRegex)
+
+            if (!parsed) {
+              if (rules.checks.warn_bad_chapter_name) {
+                warnings.add(
+                  path.join(bookRel, f.name),
+                  'Chapter file name does not match naming convention — ' +
+                    'expected: 01 - Chapter Name.ext or 101 - Chapter Name.ext (multi-disc)'
+                )
+              }
+              continue
+            }
+
+            const { disc, chapter } = parsed
+            chapterCount++
+
+            if (!discChapters.has(disc)) discChapters.set(disc, [])
+            discChapters.get(disc)!.push(chapter)
+          }
+
+          if (rules.checks.warn_chapter_gaps) {
+            for (const [discNum, chapters] of [...discChapters.entries()].sort(
+              ([a], [b]) => a - b
+            )) {
+              const gaps = findNumericGaps(chapters)
+              if (gaps.length > 0) {
+                const gapStr = gaps.map(g => `Chapter ${String(g).padStart(2, '0')}`).join(', ')
+                const discStr = discChapters.size > 1 ? `Disc ${discNum}` : 'Book'
+                warnings.add(bookRel, `Potential missing chapters in ${discStr}: ${gapStr}`)
+              }
+            }
+          }
+
+          if (!records.has(bookKey)) {
+            records.set(bookKey, {
+              title: bookEntry.name,
+              authors,
+              chapter_count: chapterCount,
+              media_type: new Set(),
+            })
+          } else {
+            records.get(bookKey)!.chapter_count = Math.max(
+              records.get(bookKey)!.chapter_count,
+              chapterCount
+            )
+          }
+
+          records.get(bookKey)!.media_type.add(tag)
         }
       }
-    }
 
-    return records
-  },
+      return records
+    },
 
-  /**
-   * Merge book records across media folders.
-   * Books are keyed by title — same title in multiple folders merges media_type.
-   */
-  merge(existing: Map<string, BookRecord>, incoming: Map<string, BookRecord>): void {
-    for (const [bookKey, newBook] of incoming) {
-      if (!existing.has(bookKey)) {
-        existing.set(bookKey, newBook)
-      } else {
-        const existingBook = existing.get(bookKey)!
-        for (const t of newBook.media_type) existingBook.media_type.add(t)
-        existingBook.chapter_count = Math.max(existingBook.chapter_count, newBook.chapter_count)
+    merge(existing: Map<string, BookRecord>, incoming: Map<string, BookRecord>): void {
+      for (const [bookKey, newBook] of incoming) {
+        if (!existing.has(bookKey)) {
+          existing.set(bookKey, newBook)
+        } else {
+          const existingBook = existing.get(bookKey)!
+          for (const t of newBook.media_type) existingBook.media_type.add(t)
+          existingBook.chapter_count = Math.max(existingBook.chapter_count, newBook.chapter_count)
+        }
       }
-    }
-  },
+    },
 
-  /** Convert records to sorted array for JSON output. Books sorted alphabetically by title. */
-  serialize(records: Map<string, BookRecord>): BookOutput[] {
-    const orderMediaType = (mt: Set<string>) => mediaTypeOrder.filter(t => mt.has(t))
+    serialize(records: Map<string, BookRecord>): BookOutput[] {
+      const orderMediaType = (mt: Set<string>) => mediaTypeOrder.filter(t => mt.has(t))
 
-    return [...records.values()]
-      .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()))
-      .map(book => ({
-        title: book.title,
-        authors: book.authors,
-        chapter_count: book.chapter_count,
-        media_type: orderMediaType(book.media_type),
-      }))
-  },
+      return [...records.values()]
+        .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()))
+        .map(book => ({
+          title: book.title,
+          authors: book.authors,
+          chapter_count: book.chapter_count,
+          media_type: orderMediaType(book.media_type),
+        }))
+    },
+
+    /**
+     * Post-merge check: emit one warning per book that ended up in multiple
+     * media folders. Runs once after all folders are scanned.
+     */
+    postScan(records: Map<string, BookRecord>, warnings: WarningCollector): void {
+      if (!rules.checks.warn_duplicate_book) return
+
+      for (const book of records.values()) {
+        if (book.media_type.size <= 1) continue
+        const tags = mediaTypeOrder.filter(t => book.media_type.has(t)).join(', ')
+        warnings.add(book.title, `Duplicate book found in multiple media folders: ${tags}`)
+      }
+    },
+  }
 }

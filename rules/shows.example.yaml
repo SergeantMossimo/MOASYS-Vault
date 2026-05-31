@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MOASYS-Vault — Shows rules (example)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# To customize: copy this file to rules/shows.yaml and edit. Anything you
+# leave out falls back to the code defaults in src/core/rules/shows.ts.
+# Partial overrides work — include only what you want to change.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Regex patterns. Use named capture groups (the scanner reads `match.groups`).
+#
+# Patterns can be a plain string (no flags) or an object with `pattern` + `flags`.
+# JavaScript regex flags: d, g, i, m, s, u, y.
+patterns:
+  # Show folder. Default matches "Star Trek Enterprise (2001)".
+  show_folder: '^(?<title>.+)\s\((?<year>\d{4})\)$'
+
+  # Season folder. Default matches "Season 01" (case-insensitive).
+  # Two-digit zero-padded number is required — "Season 1" deliberately fails
+  # so it gets flagged as a naming-convention warning.
+  season_folder:
+    pattern: '^Season\s(?<season>\d{2})$'
+    flags: 'i'
+
+  # Episode file stem. Default matches:
+  #   "Show Title (YEAR) - S01E01"
+  #   "Show Title (YEAR) - S01E01 - Episode Title"
+  #   "Show Title (YEAR) - S01E01-E02 - Multi Episode Title"
+  # Named groups: title, year, season, episode, episode_end (optional).
+  file:
+    pattern: '^(?<title>.+)\s\((?<year>\d{4})\)\s-\sS(?<season>\d{2})E(?<episode>\d{2})(?:-E?(?<episode_end>\d{2}))?(?:\s-\s.+)?$'
+    flags: 'i'
+
+# Season folder names that bypass the season-folder regex check.
+# Useful for Plex special-season conventions like "Specials" or
+# library-specific named events.
+ignored_season_names:
+  - Specials
+
+# File extensions silently allowed alongside video files anywhere in the
+# hierarchy. Same Plex defaults as movies (metadata, posters, subtitles).
+# Override to add formats your library uses.
+sidecar_extensions:
+  - .nfo
+  - .jpg
+  - .jpeg
+  - .png
+  - .webp
+  - .tbn
+  - .srt
+  - .ass
+  - .ssa
+  - .vtt
+  - .sub
+  - .idx
+
+# Quality buckets used by the ffprobe pass (`npm run probe:shows`).
+# Same shape and behavior as movies — see rules/movies.example.yaml for
+# full details. Ships empty so libraries with custom folder schemes don't
+# see bogus warnings until they configure their own buckets.
+quality_thresholds:
+  - name: UHD
+    tags: [UHD, "Other UHD"]
+    min_width: 2000
+  - name: HD
+    tags: [HD, "Other HD"]
+    min_width: 1000
+    max_width: 2000
+  - name: SD
+    tags: [SD, "Other SD"]
+    max_width: 1000
+
+# Per-warning toggles. All warnings ship enabled by default.
+checks:
+  warn_non_primary: true        # Non-primary video file (e.g. .mkv when primary is .mp4)
+  warn_no_videos: true          # Season folder has no recognized video files
+  warn_bad_show_folder: true    # Show folder name doesn't match `patterns.show_folder`
+  warn_bad_season_folder: true  # Season folder doesn't match `patterns.season_folder` and isn't in ignored_season_names
+  warn_bad_file_name: true      # Episode file name doesn't match `patterns.file`
+  warn_show_year_mismatch: true # File's show/year doesn't match parent show folder
+  warn_season_mismatch: true    # File's season number doesn't match parent season folder
+  warn_episode_gaps: true       # Gap detected in episode numbers within a season
+  warn_quality_mismatch: true   # ffprobe-detected dimensions don't fit the folder's quality_threshold bucket
+  warn_loose_files: true        # Video files at unexpected nesting (e.g. directly in a media folder or directly in a show folder with no Season XX subfolder)
+  warn_extra_subfolders: true   # Unexpected subfolders inside a Season XX folder — their contents are not scanned
+  warn_unexpected_entries: true # Files that aren't video, aren't recognized sidecars, and aren't known OS artifacts

@@ -1,0 +1,43 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MOASYS-Vault — Audiobooks rules (example)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# To customize: copy this file to rules/audiobooks.yaml and edit. Anything
+# you leave out falls back to the code defaults in src/core/rules/audiobooks.ts.
+#
+# Note: author folder parsing (single author, comma-separated, "and"-joined)
+# lives in code — not exposed as YAML because the logic isn't regex-shaped.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Chapter file stem patterns. Named capture groups required.
+# The scanner tries multi_disc first (more specific), then single_disc.
+#
+# Defaults match:
+#   "01 - Chapter Name"         ← single-file audiobook
+#   "101 - Chapter Name"        ← Book On CD: disc 1, chapter 1
+#   "201 - Chapter Name"        ← Book On CD: disc 2, chapter 1
+patterns:
+  single_disc: '^(?<chapter>\d{2})\s-\s(?<name>.+)$'
+  multi_disc: '^(?<disc>\d+)(?<chapter>\d{2})\s-\s(?<name>.+)$'
+
+# File extensions silently allowed alongside audio files anywhere in the
+# hierarchy. PDF booklets are common with audiobook downloads.
+sidecar_extensions:
+  - .nfo
+  - .jpg
+  - .jpeg
+  - .png
+  - .webp
+  - .cue
+  - .pdf
+
+# Per-warning toggles. All warnings ship enabled by default.
+checks:
+  warn_non_primary: true       # Non-primary audio file
+  warn_no_audio: true          # Book folder has no recognized audio files
+  warn_bad_chapter_name: true  # Chapter file name doesn't match any pattern
+  warn_chapter_gaps: true      # Gap detected in chapter numbers (per-disc)
+  warn_duplicate_book: true    # Same book title found in more than one media folder
+  warn_loose_files: true       # Audio files at unexpected nesting (e.g. directly in a media folder or directly in an author folder with no Book subfolder)
+  warn_extra_subfolders: true  # Unexpected subfolders inside a book folder — use disc-prefixed chapter numbers (101, 201) for multi-disc books instead
+  warn_unexpected_entries: true # Files that aren't audio, aren't recognized sidecars, and aren't known OS artifacts

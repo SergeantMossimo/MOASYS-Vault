@@ -1,0 +1,108 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MOASYS-Vault — Movies rules (example)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# To customize movie rules for your library:
+#   1. Copy this file to rules/movies.yaml
+#   2. Edit any values you want to override
+#   3. Run npm run movies
+#
+# Anything you leave out falls back to the code defaults (which mirror what's
+# shown below). You can include only the keys you want to change — partial
+# overrides work end-to-end.
+#
+# Code defaults live in src/core/rules/movies.ts. Schema validation runs at
+# boot, so a typo or wrong type will print a clear error rather than crash
+# mid-scan.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Regex patterns used to parse folder and file names.
+# Patterns MUST use named capture groups — the scanner reads `title`, `year`,
+# and (optionally) `edition` from `match.groups`.
+#
+# YAML tip: single-quoted strings don't process backslash escapes, so regex
+# escapes stay readable. Use single quotes.
+patterns:
+  # Movie folder name. Default matches "The Crow (1994)".
+  folder: '^(?<title>.+)\s\((?<year>\d{4})\)$'
+
+  # Movie file stem (no extension). Default matches:
+  #   "The Crow (1994)"
+  #   "The Crow (1994) {edition-Director's Cut}"
+  #   "The Crow (1994) {edition-}"   ← empty edition is caught as a warning
+  file: '^(?<title>.+)\s\((?<year>\d{4})\)(?:\s\{edition-(?<edition>[^}]*)\})?$'
+
+# Acceptable year range for a film. Files with years outside this range are
+# flagged as "suspicious year". Default min is 1888 (Roundhay Garden Scene).
+# Use the literal string `current` for max to mean "the current calendar year"
+# — resolved at boot, no need to bump this file every January.
+year_range:
+  min: 1888
+  max: current
+
+# Cross-folder quality combos that are intentional and should NOT trigger
+# the "Movie exists in multiple quality folders" warning. Comparison is
+# order-insensitive, so [UHD, HD] and [HD, UHD] are equivalent.
+#
+# Add an entry here when keeping the same movie in two folders is on purpose
+# (e.g. a UHD release and a smaller HD copy for compatible devices).
+acceptable_quality_combos:
+  - [UHD, HD]
+  - [Other UHD, Other HD]
+  - [HD, Other UHD]
+  - [UHD, Other HD]
+
+# File extensions silently allowed alongside video files anywhere in the
+# hierarchy. These are recognized Plex sidecars (metadata, posters, subtitles)
+# and won't trigger 'unexpected file' warnings. Override to add formats your
+# library uses (e.g. '.txt' for personal liner notes).
+sidecar_extensions:
+  - .nfo
+  - .jpg
+  - .jpeg
+  - .png
+  - .webp
+  - .tbn
+  - .srt
+  - .ass
+  - .ssa
+  - .vtt
+  - .sub
+  - .idx
+
+# Quality buckets used by the ffprobe pass (`npm run probe:movies`).
+# Each bucket groups one or more folder tags and defines a pixel-width range.
+# The file's LONG edge (max of width and height) must fall in [min_width, max_width].
+# Either bound is optional — leave off min_width on SD or max_width on UHD.
+#
+# Ships empty so users with custom folder schemes don't see bogus warnings.
+# Tags must match values in config.json -> media_folders[].tag exactly.
+quality_thresholds:
+  - name: UHD
+    tags: [UHD, "Other UHD"]
+    min_width: 2000     # 3840x2160 native, allows ~2560 cropped
+  - name: HD
+    tags: [HD, "Other HD"]
+    min_width: 1000     # 1280x720 minimum
+    max_width: 2000     # 1920x1080 typical, allows cropped widths
+  - name: SD
+    tags: [SD, "Other SD"]
+    max_width: 1000     # 720x480 native, HandBrake-cropped ~664x448
+
+# Per-warning toggles. All warnings ship enabled by default.
+# Flip any value to false to silence that warning without changing code.
+checks:
+  warn_non_primary: true        # Non-primary video file (e.g. .mkv when primary is .mp4)
+  warn_no_videos: true          # Movie folder has no recognized video files
+  warn_bad_file_name: true      # File name doesn't match the `patterns.file` regex
+  warn_bad_folder_name: true    # Folder name doesn't match the `patterns.folder` regex
+  warn_empty_edition: true      # `{edition-}` with no value after the dash
+  warn_suspicious_year: true    # Year outside `year_range`
+  warn_title_mismatch: true     # File title doesn't match parent folder title
+  warn_year_mismatch: true      # File year doesn't match parent folder year
+  warn_duplicate_edition: true  # Two files in the same folder claim the same edition
+  warn_multi_quality: true      # Same movie in multiple quality folders (unless in acceptable_quality_combos)
+  warn_quality_mismatch: true   # ffprobe-detected dimensions don't fit the folder's quality_threshold bucket
+  warn_loose_files: true        # Video files at unexpected nesting (e.g. directly in a media folder, not inside a Movie Title (YEAR)/ folder)
+  warn_extra_subfolders: true   # Unexpected subfolders inside a Movie Title (YEAR)/ folder — their contents are not scanned
+  warn_unexpected_entries: true # Files that aren't video, aren't recognized sidecars, and aren't known OS artifacts (e.g. stray .zip, .txt)

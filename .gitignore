@@ -6,6 +6,21 @@
 # Each user generates their own from their own media library.
 output/
 
+# Probe cache — ffprobe results keyed by path|mtime|size.
+# Always rebuildable from the media library, never committed.
+cache/
+
+# Rules — see rules/*.example.yaml for the templates.
+#
+# Personal rules overrides live in rules/<type>.yaml (e.g. rules/shows.yaml).
+# These ARE committed in this repo because they capture this library's
+# naming conventions. If you fork the project and your overrides are
+# personal (not meant to be shared), un-comment the two lines below to
+# keep them local-only while still committing the example templates:
+#
+# rules/*.yaml
+# !rules/*.example.yaml
+
 # TypeScript compiled output
 dist/
 

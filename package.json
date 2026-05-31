@@ -8,6 +8,11 @@
     "music": "tsx src/scan.ts --type music",
     "audiobooks": "tsx src/scan.ts --type audiobooks",
     "scan:all": "tsx src/scan.ts --all",
+    "probe:movies": "tsx src/probe/runner.ts --type movies",
+    "probe:shows": "tsx src/probe/runner.ts --type shows",
+    "probe:music": "tsx src/probe/runner.ts --type music",
+    "probe:audiobooks": "tsx src/probe/runner.ts --type audiobooks",
+    "probe:all": "tsx src/probe/runner.ts --all",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "lint:md": "markdownlint-cli2 **/*.md #node_modules",
@@ -16,6 +21,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.11.5",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
@@ -24,5 +30,10 @@
     "prettier": "^3.2.5",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "ffprobe-static": "^3.1.0",
+    "js-yaml": "^4.1.1",
+    "zod": "^4.4.3"
   }
 }

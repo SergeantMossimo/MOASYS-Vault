@@ -1,0 +1,21 @@
+# Personal override for the Shows rules.
+# Preserves the ignored_season_names values that used to live in config.json
+# and configures quality_thresholds for the ffprobe pass.
+# Everything not listed here falls back to the code defaults in
+# src/core/rules/shows.ts. See rules/shows.example.yaml for all options.
+
+ignored_season_names:
+  - Specials
+  - Champion of Champions
+
+quality_thresholds:
+  - name: UHD
+    tags: [UHD, "Other UHD"]
+    min_width: 2000
+  - name: HD
+    tags: [HD, "Other HD"]
+    min_width: 1000
+    max_width: 2000
+  - name: SD
+    tags: [SD, "Other SD"]
+    max_width: 1000
