@@ -35,8 +35,41 @@ export interface AudioProbe {
 }
 
 /**
+ * Embedded tag metadata from an audio file's container (ID3 for MP3,
+ * Vorbis comments for FLAC/OGG, MP4 tags for M4A, etc.). Only populated
+ * by the music probe — movies/shows/audiobooks don't read tags.
+ *
+ * All fields are nullable since tag presence varies widely across libraries.
+ * Fall back from `album_artist` to `artist` when comparing against folder
+ * names: many files only set `artist`, leaving `album_artist` unset.
+ */
+export interface TagData {
+  /** Track title, e.g. "In the Flesh" */
+  title: string | null
+  /** Per-track artist — the performer of this track */
+  artist: string | null
+  /** Album-level artist — the artist responsible for the album as a whole */
+  album_artist: string | null
+  /** Album name from tags */
+  album: string | null
+  /** Release year as an integer, or null if missing/unparseable */
+  year: number | null
+  /** Track number (within disc), e.g. 1 of 12 */
+  track: number | null
+  /** Total tracks on this disc, or null if unset */
+  total_tracks: number | null
+  /** Disc number (1-indexed) for multi-disc albums */
+  disc: number | null
+  /** Total discs in the set, or null if unset */
+  total_discs: number | null
+  /** Genre tags (often multiple) */
+  genre: string[] | null
+}
+
+/**
  * Normalized probe result for one file.
- * size_bytes / duration come from the container; video/audio from streams.
+ * size_bytes / duration come from the container; video/audio from streams;
+ * tags from the music probe pass when applicable.
  */
 export interface ProbeData {
   size_bytes: number
@@ -45,6 +78,8 @@ export interface ProbeData {
   bitrate: number | null
   video: VideoProbe | null
   audio: AudioProbe | null
+  /** Embedded metadata tags. Populated only by the music probe pass. */
+  tags: TagData | null
 }
 
 // ─────────────────────────────────────────────
@@ -73,10 +108,11 @@ export interface CacheFile {
   entries: CacheEntry[]
 }
 
-// Bumped to 2 when attached_pic filtering was added to summarizeVideo —
-// previously cached audio-file probes incorrectly carried a `video` field
-// holding the embedded cover art.
-export const CACHE_VERSION = 2
+// Bumped when probe data shape changes incompatibly. Old caches get
+// discarded; the next run rebuilds them.
+//   v2: filter attached_pic streams from video summary
+//   v3: ProbeData carries optional ID3 tag data for music files
+export const CACHE_VERSION = 3
 
 // ─────────────────────────────────────────────
 // Per-media probe output shapes
@@ -123,11 +159,28 @@ export interface ShowProbeOutput {
 export interface TrackProbe extends FileProbe {
   disc: number
   track: number
+  /**
+   * Derived human-readable audio-quality string: `"FLAC 16/44.1"`, `"MP3 320"`,
+   * `"AAC 256"`, etc. Null when ffprobe didn't return enough info to derive
+   * one (rare). Computed from the audio stream's codec + bit_depth + sample
+   * rate (lossless) or bitrate (lossy).
+   *
+   * Distinct from `FileProbe.quality`, which is the folder tag (e.g. "Music",
+   * "Soundtracks"). This field describes encoded audio quality.
+   */
+  audio_quality: string | null
 }
 
 export interface AlbumProbeOutput {
   album: string
   media_type: string[]
+  /**
+   * Distinct audio-quality strings across all tracks in the album. One entry
+   * = a uniform album. Multiple entries = mid-album quality changes, which
+   * is usually a hygiene issue (e.g. one track was re-encoded at a lower
+   * bitrate) and triggers `warn_quality_inconsistent`.
+   */
+  audio_quality_summary: string[]
   tracks: TrackProbe[]
 }
 

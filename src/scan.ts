@@ -148,7 +148,8 @@ function runScan<TRecord, TOutput, TConfig extends BaseMediaConfig>(
   console.log(`\n  Root : ${entry.config.root_path}`)
   console.log()
 
-  entry.module.initTagOrder(entry.config.media_folders)
+  // initTagOrder used to live here — modules now resolve their own
+  // media_folders from rules at factory-creation time.
 
   fs.mkdirSync(entry.outputDir, { recursive: true })
 

@@ -1,9 +1,97 @@
-# Personal override for the Movies rules.
-# Currently configures quality_thresholds for the ffprobe pass —
-# everything else falls back to the code defaults in src/core/rules/movies.ts.
+# ─────────────────────────────────────────────────────────────────────────────
+# MOASYS-Vault — Movies rules
+# ─────────────────────────────────────────────────────────────────────────────
 #
-# See rules/movies.example.yaml for all available options.
+# This file shows every available option. Uncomment a line (or block) to
+# override the code default with your own value. Anything you leave commented
+# uses the code default — the comments simply document what's possible.
+#
+# Code defaults live in src/core/rules/movies.ts. Schema validation runs at
+# boot, so typos and wrong types fail with a clear error before any scanning.
+# ─────────────────────────────────────────────────────────────────────────────
 
+# ── Regex patterns ──────────────────────────────────────────────────────────
+# Patterns MUST use named capture groups. They can be plain strings (no flags)
+# or { pattern, flags } objects. Defaults match the Plex convention.
+#
+# patterns:
+#   folder: '^(?<title>.+)\s\((?<year>\d{4})\)$'                                     # The Crow (1994)
+#   file:   '^(?<title>.+)\s\((?<year>\d{4})\)(?:\s\{edition-(?<edition>[^}]*)\})?$' # The Crow (1994) {edition-Director's Cut}
+
+# ── Media folders ───────────────────────────────────────────────────────────
+# Subfolders under root_path to walk, each tagged for output. The `name` is
+# the actual folder name on disk; the `tag` is the label used in output JSON
+# and referenced by quality_thresholds below.
+#
+# Leave this commented out or set to [] for a flat library — the scanner will
+# walk root_path itself and tag records with "default".
+media_folders:
+  - { name: UHD,        tag: UHD }
+  - { name: HD,         tag: HD }
+  - { name: SD,         tag: SD }
+  - { name: Other UHD,  tag: Other UHD }
+  - { name: Other HD,   tag: Other HD }
+  - { name: Other SD,   tag: Other SD }
+
+# ── File extensions ─────────────────────────────────────────────────────────
+# Primary = the formats you expect; anything else triggers warn_non_primary.
+# Video = every extension treated as a movie file; outside this list = "unexpected".
+#
+# primary_extension:
+#   - .mp4
+#
+# video_extensions:
+#   - .mp4
+#   - .mkv
+#   - .avi
+#   - .m4v
+#   - .mov
+#   - .wmv
+#   - .ts
+#   - .m2ts
+#   - .webm
+
+# ── Acceptable year range ───────────────────────────────────────────────────
+# Files with a year outside this range get warn_suspicious_year.
+# `max: current` resolves to the current calendar year at boot.
+#
+# year_range:
+#   min: 1888
+#   max: current
+
+# ── Cross-folder quality combinations ───────────────────────────────────────
+# Cases where the same movie intentionally lives in two quality folders
+# (e.g. UHD master + HD downscale for older clients). Set-based comparison.
+#
+# acceptable_quality_combos:
+#   - [UHD, HD]
+#   - [Other UHD, Other HD]
+#   - [HD, Other UHD]
+#   - [UHD, Other HD]
+
+# ── Sidecar files ───────────────────────────────────────────────────────────
+# Extensions silently allowed anywhere in the movie hierarchy. Anything else
+# (non-video, non-sidecar) triggers warn_unexpected_entries.
+#
+# sidecar_extensions:
+#   - .nfo
+#   - .jpg
+#   - .jpeg
+#   - .png
+#   - .webp
+#   - .tbn
+#   - .srt
+#   - .ass
+#   - .ssa
+#   - .vtt
+#   - .sub
+#   - .idx
+
+# ── Quality buckets (ffprobe pass) ──────────────────────────────────────────
+# Maps folder tags to expected pixel ranges. The file's long edge (max of
+# width and height) must fall in [min_width, max_width]. Either bound is
+# optional. Tags must match config.json -> media_folders[].tag exactly.
+# Empty default = silent. Configured below for this library.
 quality_thresholds:
   - name: UHD
     tags: [UHD, "Other UHD"]
@@ -15,3 +103,26 @@ quality_thresholds:
   - name: SD
     tags: [SD, "Other SD"]
     max_width: 1000
+
+# ── Per-warning toggles ─────────────────────────────────────────────────────
+# All warnings ship enabled. Set to false to silence individually.
+#
+# checks:
+#   warn_non_primary: true        # File isn't the configured primary format
+#   warn_no_videos: true          # Movie folder has no video files
+#   warn_bad_file_name: true      # File name doesn't match patterns.file
+#   warn_bad_folder_name: true    # Folder name doesn't match patterns.folder
+#   warn_empty_edition: true      # {edition-} with no value
+#   warn_suspicious_year: true    # Year outside year_range
+#   warn_title_mismatch: true     # File title vs folder title
+#   warn_year_mismatch: true      # File year vs folder year
+#   warn_duplicate_edition: true  # Two files in same folder claim same edition
+#   warn_multi_quality: true      # Movie in multiple quality folders (unless in acceptable_quality_combos)
+#   warn_quality_mismatch: true   # ffprobe-detected dimensions don't fit folder's quality_thresholds bucket
+#   warn_loose_files: true        # Video files at unexpected nesting level
+#   warn_extra_subfolders: true   # Unexpected subfolders inside a movie folder
+#   warn_unexpected_entries: true # Non-video, non-sidecar files
+#   warn_tmdb_no_match: true      # TMDB found no plausible match — possible typo (validate pass)
+#   warn_tmdb_low_confidence: true # TMDB match score below threshold — review (validate pass)
+#   warn_tmdb_year_mismatch: true # TMDB canonical year differs from folder year (validate pass)
+#   warn_tmdb_title_canonical: true # Folder title differs from TMDB filename-safe title — rename suggestion (validate pass)

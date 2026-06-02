@@ -14,7 +14,7 @@
 
 import { z } from 'zod'
 
-import { PatternSchema } from './helpers'
+import { PatternSchema, MediaFolderSchema } from './helpers'
 
 export const MoviesRulesSchema = z.object({
   /** Regex patterns for folder and file names. Must use named capture groups. */
@@ -24,6 +24,28 @@ export const MoviesRulesSchema = z.object({
     /** Captures: title, year, edition (optional) */
     file: PatternSchema,
   }),
+
+  /**
+   * Subfolders under root_path to walk, each tagged for output. Empty array
+   * (or omitted) means the scanner walks root_path itself with a "default"
+   * tag — useful for flat libraries without quality buckets.
+   */
+  media_folders: z.array(MediaFolderSchema),
+
+  /**
+   * Expected primary file format(s) for movies in this library. Files with
+   * a non-primary extension are flagged with `warn_non_primary`. Lossless
+   * libraries might set this to [".mkv"]; Apple-friendly libraries [".mp4"].
+   */
+  primary_extension: z.array(z.string()).min(1),
+
+  /**
+   * All file extensions the scanner recognizes as video files. Anything
+   * outside this list is treated as either a sidecar (if its extension is
+   * in `sidecar_extensions`) or an "unexpected entry". Includes the primary
+   * formats plus any other formats that might appear.
+   */
+  video_extensions: z.array(z.string()).min(1),
 
   /**
    * Acceptable year range for a film.
@@ -100,6 +122,29 @@ export const MoviesRulesSchema = z.object({
      * .txt, .m3u files etc. that are silently ignored without this check.
      */
     warn_unexpected_entries: z.boolean(),
+    /**
+     * TMDB found no plausible match for the local title + year. Possible
+     * typo, obscure film not in TMDB, or wrong year. Surfaced from the
+     * validate pass (validation-warnings.json).
+     */
+    warn_tmdb_no_match: z.boolean(),
+    /**
+     * TMDB returned a match but our scoring rated the confidence as "low"
+     * — title is close but not exact, OR year disagrees. Worth reviewing.
+     */
+    warn_tmdb_low_confidence: z.boolean(),
+    /**
+     * TMDB confidently matched the title but the canonical year on TMDB
+     * differs from the local year. Possible folder/file year is wrong.
+     */
+    warn_tmdb_year_mismatch: z.boolean(),
+    /**
+     * TMDB matched but the folder title isn't byte-for-byte equal to TMDB's
+     * filename-safe canonical title (case-sensitive). Catches missing
+     * accents on legal characters, capitalization differences, etc. — cases
+     * where you COULD rename to match TMDB exactly.
+     */
+    warn_tmdb_title_canonical: z.boolean(),
   }),
 })
 
@@ -112,6 +157,9 @@ export const defaultMoviesRules: MoviesRules = MoviesRulesSchema.parse({
     folder: '^(?<title>.+)\\s\\((?<year>\\d{4})\\)$',
     file: '^(?<title>.+)\\s\\((?<year>\\d{4})\\)(?:\\s\\{edition-(?<edition>[^}]*)\\})?$',
   },
+  media_folders: [],
+  primary_extension: ['.mp4'],
+  video_extensions: ['.mp4', '.mkv', '.avi', '.m4v', '.mov', '.wmv', '.ts', '.m2ts', '.webm'],
   year_range: {
     min: 1888, // Roundhay Garden Scene
     max: 'current',
@@ -154,5 +202,9 @@ export const defaultMoviesRules: MoviesRules = MoviesRulesSchema.parse({
     warn_loose_files: true,
     warn_extra_subfolders: true,
     warn_unexpected_entries: true,
+    warn_tmdb_no_match: true,
+    warn_tmdb_low_confidence: true,
+    warn_tmdb_year_mismatch: true,
+    warn_tmdb_title_canonical: true,
   },
 })

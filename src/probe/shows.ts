@@ -14,7 +14,7 @@ import path from 'path'
 import { ShowsConfig, WarningCollector } from '../core/types'
 import { isPrimary } from '../core/files'
 import { ShowsRules } from '../core/rules/shows'
-import { compilePattern } from '../core/rules/helpers'
+import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
 
 import { ProbeCache } from './cache'
 import { ProbeTask, ProbedFile, classifyQuality, probeBatch } from './helpers'
@@ -108,7 +108,7 @@ function collectTasks(
 
   const out: Array<{ task: ProbeTask; identity: EpisodeIdentity }> = []
 
-  for (const mf of config.media_folders) {
+  for (const mf of resolveMediaFolders(rules.media_folders)) {
     const folderPath = path.join(config.root_path, mf.name)
     if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
       console.log(`    [SKIP] Media folder not found: ${folderPath}`)
@@ -149,7 +149,7 @@ function collectTasks(
 
         for (const f of files) {
           if (!f.isFile()) continue
-          if (!isPrimary(f.name, config)) continue
+          if (!isPrimary(f.name, rules.primary_extension)) continue
           const stem = path.basename(f.name, path.extname(f.name))
           const parsed = parseFileStem(stem, fileRegex)
           if (!parsed) continue
@@ -222,6 +222,7 @@ function aggregate(
       bitrate: data.bitrate,
       video: data.video,
       audio: data.audio,
+      tags: data.tags,
     })
   }
 
@@ -301,6 +302,6 @@ export async function probeShows(
     }
   }
 
-  const qualityOrder = config.media_folders.map(mf => mf.tag)
+  const qualityOrder = resolveMediaFolders(rules.media_folders).map(mf => mf.tag)
   return aggregate(probed, identities, qualityOrder)
 }

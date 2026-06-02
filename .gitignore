@@ -10,16 +10,17 @@ output/
 # Always rebuildable from the media library, never committed.
 cache/
 
-# Rules — see rules/*.example.yaml for the templates.
+# Rules — single file per media type at rules/<type>.yaml.
 #
-# Personal rules overrides live in rules/<type>.yaml (e.g. rules/shows.yaml).
 # These ARE committed in this repo because they capture this library's
 # naming conventions. If you fork the project and your overrides are
-# personal (not meant to be shared), un-comment the two lines below to
-# keep them local-only while still committing the example templates:
+# personal (not meant to be shared), un-comment the line below to keep
+# them local-only.
 #
 # rules/*.yaml
-# !rules/*.example.yaml
+
+# Secrets — TMDB API key etc. NEVER commit this file.
+.secrets.json
 
 # TypeScript compiled output
 dist/

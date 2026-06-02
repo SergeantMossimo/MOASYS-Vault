@@ -185,5 +185,8 @@ export async function probeFile(filePath: string): Promise<ProbeData> {
     bitrate: intOrNull(fmt.bit_rate),
     video: summarizeVideo(streams),
     audio: summarizeAudio(streams),
+    // Tags are populated separately by the music probe (which calls
+    // src/probe/id3.ts). For other media types they stay null.
+    tags: null,
   }
 }

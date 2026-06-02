@@ -10,7 +10,7 @@
 
 import { z } from 'zod'
 
-import { PatternSchema } from './helpers'
+import { PatternSchema, MediaFolderSchema } from './helpers'
 
 export const ShowsRulesSchema = z.object({
   /**
@@ -27,6 +27,15 @@ export const ShowsRulesSchema = z.object({
     season_folder: PatternSchema,
     file: PatternSchema,
   }),
+
+  /** Subfolders under root_path to walk. Empty = walk root_path directly with "default" tag. */
+  media_folders: z.array(MediaFolderSchema),
+
+  /** Expected primary file format(s) for episodes. */
+  primary_extension: z.array(z.string()).min(1),
+
+  /** All file extensions the scanner recognizes as video files. */
+  video_extensions: z.array(z.string()).min(1),
 
   /**
    * Season folder names that bypass the season-folder regex check.
@@ -83,6 +92,28 @@ export const ShowsRulesSchema = z.object({
      * known OS artifacts. Catches stray files silently ignored elsewhere.
      */
     warn_unexpected_entries: z.boolean(),
+    /**
+     * TMDB found no plausible match for the local title + year. Surfaced
+     * from the validate pass (validation-warnings.json).
+     */
+    warn_tmdb_no_match: z.boolean(),
+    /**
+     * TMDB match had low confidence — title close but not exact, or year
+     * disagrees. Worth reviewing.
+     */
+    warn_tmdb_low_confidence: z.boolean(),
+    /**
+     * Local season has a different episode count than TMDB reports. Catches
+     * incomplete seasons even when episode numbers don't have gaps (e.g.
+     * you have 1-10 but TMDB says the season has 13). Per-season warning.
+     */
+    warn_tmdb_episode_count: z.boolean(),
+    /**
+     * TMDB matched but the folder title isn't byte-for-byte equal to TMDB's
+     * filename-safe canonical title (case-sensitive). Same idea as the
+     * movies rule — surfaces case/accent/capitalization opportunities.
+     */
+    warn_tmdb_title_canonical: z.boolean(),
   }),
 })
 
@@ -98,6 +129,9 @@ export const defaultShowsRules: ShowsRules = ShowsRulesSchema.parse({
       flags: 'i',
     },
   },
+  media_folders: [],
+  primary_extension: ['.mp4'],
+  video_extensions: ['.mp4', '.mkv', '.avi', '.m4v', '.mov', '.wmv', '.ts', '.m2ts'],
   ignored_season_names: ['Specials'],
   sidecar_extensions: [
     '.nfo',
@@ -127,5 +161,9 @@ export const defaultShowsRules: ShowsRules = ShowsRulesSchema.parse({
     warn_loose_files: true,
     warn_extra_subfolders: true,
     warn_unexpected_entries: true,
+    warn_tmdb_no_match: true,
+    warn_tmdb_low_confidence: true,
+    warn_tmdb_episode_count: true,
+    warn_tmdb_title_canonical: true,
   },
 })

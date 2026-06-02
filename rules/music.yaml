@@ -1,0 +1,95 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MOASYS-Vault — Music rules
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# This file shows every available option. Uncomment a line (or block) to
+# override the code default with your own value. Anything you leave commented
+# uses the code default — the comments simply document what's possible.
+#
+# Code defaults live in src/core/rules/music.ts. Plex itself doesn't enforce
+# a format on artist or album folders — the permissive defaults below match
+# any non-empty name. Tighten them if your library uses a stricter convention.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Regex patterns ──────────────────────────────────────────────────────────
+# Track files: the scanner tries multi_disc first (more specific), then
+# single_disc. Defaults match Plex's documented conventions:
+#   "01 - Track Name.flac"           ← single disc
+#   "101 - Track Name.flac"          ← multi-disc: disc 1, track 1
+#
+# patterns:
+#   artist_folder: '^(?<name>.+)$'                                # Permissive default
+#   album_folder:  '^(?<name>.+)$'                                # Permissive default
+#   single_disc:   '^(?<track>\d{2})\s-\s(?<name>.+)$'           # 01 - Track Name
+#   multi_disc:    '^(?<disc>\d+)(?<track>\d{2})\s-\s(?<name>.+)$' # 101 - Track Name
+#
+# Tighter album_folder example for libraries that include year:
+#   album_folder: '^(?<name>.+) \((?<year>\d{4})\)$'              # The Wall (1979)
+
+# ── Media folders ───────────────────────────────────────────────────────────
+# Subfolders under root_path to walk, each tagged for output. The `tag` is
+# the label that appears in each album's `media_type` field in music.json.
+#
+# Leave this commented out or set to [] for a flat library (everything under
+# root_path) — records will be tagged "default".
+media_folders:
+  - { name: Music,             tag: Music }
+  - { name: Other Music,       tag: Other Music }
+  - { name: Soundtracks,       tag: Soundtracks }
+  - { name: Other Soundtracks, tag: Other Soundtracks }
+
+# ── File extensions ─────────────────────────────────────────────────────────
+# Primary = the formats you expect; anything else triggers warn_non_primary.
+# Audio = every extension treated as a track file; outside this list = "unexpected".
+#
+# primary_extension:
+#   - .flac
+#   - .mp3
+#   - .m4a
+#
+# audio_extensions:
+#   - .flac
+#   - .mp3
+#   - .aac
+#   - .m4a
+#   - .wav
+#   - .ogg
+#   - .wma
+
+# ── Sidecar files ───────────────────────────────────────────────────────────
+# Extensions silently allowed anywhere in the music hierarchy. The defaults
+# include cover art, NFO metadata, lyrics, cuesheets, playlists, PDF liner
+# notes. Add '.txt' if you keep personal text liner notes alongside albums.
+#
+# sidecar_extensions:
+#   - .nfo
+#   - .jpg
+#   - .jpeg
+#   - .png
+#   - .webp
+#   - .lrc
+#   - .cue
+#   - .m3u
+#   - .m3u8
+#   - .pdf
+
+# ── Per-warning toggles ─────────────────────────────────────────────────────
+# All warnings ship enabled. Set to false to silence individually.
+#
+# checks:
+#   warn_non_primary: true              # File isn't the configured primary format
+#   warn_no_audio: true                 # Album folder has no audio files
+#   warn_bad_track_name: true           # Track file name doesn't match any pattern
+#   warn_bad_artist_folder: true        # Artist folder doesn't match patterns.artist_folder
+#   warn_bad_album_folder: true         # Album folder doesn't match patterns.album_folder
+#   warn_suspicious_folder_chars: true  # Trailing whitespace / Windows-illegal chars / reserved names
+#   warn_track_gaps: true               # Gap detected in track numbers (per-disc)
+#   warn_duplicate_album: true          # Same artist + album in more than one media folder
+#   warn_loose_files: true              # Audio files at unexpected nesting level
+#   warn_extra_subfolders: true         # Unexpected subfolders inside an album folder
+#   warn_unexpected_entries: true       # Non-audio, non-sidecar files
+#   warn_quality_inconsistent: true     # Album has tracks with mixed audio quality — different codecs OR bitrate spread > 64 kbps (probe pass)
+#   warn_compilation_detected: true     # Album has tracks by multiple distinct AlbumArtists but isn't in a Various Artists folder (probe pass)
+#   warn_folder_tag_mismatch: true      # Artist or Album folder name doesn't match the embedded AlbumArtist / Album tag (probe pass)
+#   warn_missing_tags: true             # Tracks missing required tags (title, album, or artist/album_artist) — Plex falls back to filename (probe pass)
+#   warn_track_number_mismatch: true    # Filename track number prefix doesn't match the tag's TrackNumber (probe pass)

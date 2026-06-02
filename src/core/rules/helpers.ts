@@ -60,3 +60,33 @@ export type Pattern = z.infer<typeof PatternSchema>
 export function compilePattern(p: Pattern): RegExp {
   return new RegExp(p.pattern, p.flags)
 }
+
+/**
+ * One entry in the media_folders rules array — maps a folder name on disk
+ * to a tag used in output. Same shape that used to live in `BaseMediaConfig`
+ * as part of `config.json`. Now part of rules so it sits alongside the things
+ * that reference its tags (e.g. movies' `quality_thresholds`).
+ *
+ * Leaving `media_folders` empty (or unset) is supported — the scanner falls
+ * back to walking `root_path` directly and tagging records with `"default"`.
+ */
+export const MediaFolderSchema = z.object({
+  /** Subfolder name on disk under root_path, e.g. "UHD" */
+  name: z.string(),
+  /** Label used in output JSON, e.g. "UHD" or "Music" */
+  tag: z.string(),
+})
+
+export type MediaFolder = z.infer<typeof MediaFolderSchema>
+
+/** Synthetic single-entry list used when media_folders is empty. */
+export const IMPLICIT_MEDIA_FOLDER: MediaFolder = { name: '', tag: 'default' }
+
+/**
+ * Resolve the effective media_folders list for a media module.
+ * If the rules supplied any folders, use them. Otherwise return a synthetic
+ * single-entry list pointing at root_path with tag "default".
+ */
+export function resolveMediaFolders(configured: MediaFolder[]): MediaFolder[] {
+  return configured.length > 0 ? configured : [IMPLICIT_MEDIA_FOLDER]
+}
