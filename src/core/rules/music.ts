@@ -9,7 +9,7 @@
 
 import { z } from 'zod'
 
-import { PatternSchema } from './helpers'
+import { PatternSchema, MediaFolderSchema } from './helpers'
 
 export const MusicRulesSchema = z.object({
   /**
@@ -33,6 +33,19 @@ export const MusicRulesSchema = z.object({
     single_disc: PatternSchema,
     multi_disc: PatternSchema,
   }),
+
+  /** Subfolders under root_path to walk. Empty = walk root_path directly with "default" tag. */
+  media_folders: z.array(MediaFolderSchema),
+
+  /**
+   * Expected primary file format(s) for music. Lossless-only libraries
+   * might use [".flac"]; mixed libraries can list multiple, in which case
+   * any of them is treated as "primary".
+   */
+  primary_extension: z.array(z.string()).min(1),
+
+  /** All file extensions the scanner recognizes as audio files. */
+  audio_extensions: z.array(z.string()).min(1),
 
   /**
    * File extensions for Plex sidecar files (NFO metadata, cover art,
@@ -70,6 +83,38 @@ export const MusicRulesSchema = z.object({
      * known OS artifacts. Catches stray files silently ignored elsewhere.
      */
     warn_unexpected_entries: z.boolean(),
+    /**
+     * Album has tracks with more than one distinct derived audio quality
+     * (e.g. some tracks FLAC 16/44.1 and others MP3 320). Usually means a
+     * mid-album re-encode or accidental mix. Surfaced from the probe pass,
+     * so it lives in probe-warnings.json rather than warnings.json.
+     */
+    warn_quality_inconsistent: z.boolean(),
+    /**
+     * Album has tracks by multiple distinct artists (per embedded
+     * AlbumArtist tags) but isn't in a "Various Artists" folder. Per Plex
+     * convention, true compilations should live under Various Artists.
+     */
+    warn_compilation_detected: z.boolean(),
+    /**
+     * The artist or album folder on disk doesn't match what the embedded
+     * tags say. Common cause of Plex library fragmentation — folder says
+     * "Pink Floyd" but tag says "Pink Floyd Project" and they get treated
+     * as separate artists.
+     */
+    warn_folder_tag_mismatch: z.boolean(),
+    /**
+     * Tracks missing required tag fields (title, album, or album_artist /
+     * artist). Plex falls back to filename parsing in this case, which
+     * works but means you're not really benefiting from ID3.
+     */
+    warn_missing_tags: z.boolean(),
+    /**
+     * Filename's track number prefix (e.g. `03 -`) doesn't match the
+     * embedded TrackNumber tag. Usually means an accidental rename or
+     * out-of-order tracks.
+     */
+    warn_track_number_mismatch: z.boolean(),
   }),
 })
 
@@ -85,6 +130,9 @@ export const defaultMusicRules: MusicRules = MusicRulesSchema.parse({
     single_disc: '^(?<track>\\d{2})\\s-\\s(?<name>.+)$',
     multi_disc: '^(?<disc>\\d+)(?<track>\\d{2})\\s-\\s(?<name>.+)$',
   },
+  media_folders: [],
+  primary_extension: ['.flac', '.mp3', '.m4a'],
+  audio_extensions: ['.flac', '.mp3', '.aac', '.m4a', '.wav', '.ogg', '.wma'],
   // Music sidecars — NFO metadata, cover art, lyrics, cuesheets, PDF liner notes.
   sidecar_extensions: [
     '.nfo',
@@ -110,5 +158,10 @@ export const defaultMusicRules: MusicRules = MusicRulesSchema.parse({
     warn_loose_files: true,
     warn_extra_subfolders: true,
     warn_unexpected_entries: true,
+    warn_quality_inconsistent: true,
+    warn_compilation_detected: true,
+    warn_folder_tag_mismatch: true,
+    warn_missing_tags: true,
+    warn_track_number_mismatch: true,
   },
 })

@@ -11,7 +11,7 @@ import path from 'path'
 import { AudiobooksConfig, WarningCollector } from '../core/types'
 import { isPrimary } from '../core/files'
 import { AudiobooksRules } from '../core/rules/audiobooks'
-import { compilePattern } from '../core/rules/helpers'
+import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
 
 import { ProbeCache } from './cache'
 import { ProbeTask, ProbedFile, probeBatch } from './helpers'
@@ -77,7 +77,7 @@ function collectTasks(
   const singleDiscRegex = compilePattern(rules.patterns.single_disc)
   const out: Array<{ task: ProbeTask; identity: ChapterIdentity }> = []
 
-  for (const mf of config.media_folders) {
+  for (const mf of resolveMediaFolders(rules.media_folders)) {
     const folderPath = path.join(config.root_path, mf.name)
     if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
       console.log(`    [SKIP] Media folder not found: ${folderPath}`)
@@ -109,7 +109,7 @@ function collectTasks(
 
         for (const f of files) {
           if (!f.isFile()) continue
-          if (!isPrimary(f.name, config)) continue
+          if (!isPrimary(f.name, rules.primary_extension)) continue
 
           const stem = path.basename(f.name, path.extname(f.name))
           const parsed = parseChapterStem(stem, multiDiscRegex, singleDiscRegex)
@@ -180,6 +180,7 @@ function aggregate(
       bitrate: data.bitrate,
       video: data.video,
       audio: data.audio,
+      tags: data.tags,
     }
     book.chapters.push(chapter)
   }
@@ -221,6 +222,6 @@ export async function probeAudiobooks(
     }
   })
 
-  const mediaTypeOrder = config.media_folders.map(mf => mf.tag)
+  const mediaTypeOrder = resolveMediaFolders(rules.media_folders).map(mf => mf.tag)
   return aggregate(probed, identities, mediaTypeOrder)
 }

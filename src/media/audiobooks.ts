@@ -23,7 +23,6 @@ import path from 'path'
 
 import {
   AudiobooksConfig,
-  MediaFolder,
   BookRecord,
   BookOutput,
   WarningCollector,
@@ -32,7 +31,7 @@ import {
 import { hasExtension, isPrimary, formatPrimaryExts, findUnexpectedEntries } from '../core/files'
 import { findNumericGaps } from '../core/gaps'
 import { AudiobooksRules } from '../core/rules/audiobooks'
-import { compilePattern } from '../core/rules/helpers'
+import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -96,12 +95,11 @@ export function createAudiobooksModule(
   const multiDiscRegex = compilePattern(rules.patterns.multi_disc)
   const singleDiscRegex = compilePattern(rules.patterns.single_disc)
 
-  let mediaTypeOrder: string[] = []
+  const effectiveMediaFolders = resolveMediaFolders(rules.media_folders)
+  const mediaTypeOrder = effectiveMediaFolders.map(mf => mf.tag)
 
   return {
-    initTagOrder(mediaFolders: MediaFolder[]): void {
-      mediaTypeOrder = mediaFolders.map(mf => mf.tag)
-    },
+    getMediaFolders: () => effectiveMediaFolders,
 
     scanMediaFolder(
       folderPath: string,
@@ -118,7 +116,7 @@ export function createAudiobooksModule(
       // this check. Expected structure: Author/Book/chapters.
       if (rules.checks.warn_loose_files) {
         const looseRoot = rootEntries.filter(
-          e => e.isFile() && hasExtension(e.name, config.audio_extensions)
+          e => e.isFile() && hasExtension(e.name, rules.audio_extensions)
         )
         if (looseRoot.length > 0) {
           warnings.add(
@@ -133,7 +131,7 @@ export function createAudiobooksModule(
       if (rules.checks.warn_unexpected_entries) {
         const unexpected = findUnexpectedEntries(
           rootEntries,
-          config.audio_extensions,
+          rules.audio_extensions,
           rules.sidecar_extensions
         )
         if (unexpected.length > 0) {
@@ -164,7 +162,7 @@ export function createAudiobooksModule(
         // — silently dropped from the catalog without this check.
         if (rules.checks.warn_loose_files) {
           const looseAuthor = bookEntries.filter(
-            e => e.isFile() && hasExtension(e.name, config.audio_extensions)
+            e => e.isFile() && hasExtension(e.name, rules.audio_extensions)
           )
           if (looseAuthor.length > 0) {
             warnings.add(
@@ -179,7 +177,7 @@ export function createAudiobooksModule(
         if (rules.checks.warn_unexpected_entries) {
           const unexpected = findUnexpectedEntries(
             bookEntries,
-            config.audio_extensions,
+            rules.audio_extensions,
             rules.sidecar_extensions
           )
           if (unexpected.length > 0) {
@@ -227,7 +225,7 @@ export function createAudiobooksModule(
           if (rules.checks.warn_unexpected_entries) {
             const unexpected = findUnexpectedEntries(
               allFiles,
-              config.audio_extensions,
+              rules.audio_extensions,
               rules.sidecar_extensions
             )
             if (unexpected.length > 0) {
@@ -240,9 +238,9 @@ export function createAudiobooksModule(
           }
 
           const audioFiles = allFiles.filter(
-            f => f.isFile() && hasExtension(f.name, config.audio_extensions)
+            f => f.isFile() && hasExtension(f.name, rules.audio_extensions)
           )
-          const nonPrimary = audioFiles.filter(f => !isPrimary(f.name, config))
+          const nonPrimary = audioFiles.filter(f => !isPrimary(f.name, rules.primary_extension))
 
           if (audioFiles.length === 0) {
             if (rules.checks.warn_no_audio) {
@@ -256,7 +254,7 @@ export function createAudiobooksModule(
               const ext = path.extname(f.name).toLowerCase()
               warnings.add(
                 path.join(bookRel, f.name),
-                `${formatPrimaryExts(config)} audio file — may need re-encoding`,
+                `${formatPrimaryExts(rules.primary_extension)} audio file — may need re-encoding`,
                 ext
               )
             }

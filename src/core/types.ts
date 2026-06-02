@@ -10,40 +10,33 @@
 // Config types
 // ─────────────────────────────────────────────
 
-/** One entry in the media_folders list — maps a folder name on disk to an output tag */
-export interface MediaFolder {
-  name: string // Actual folder name on disk e.g. "UHD"
-  tag: string // Label used in output e.g. "UHD"
-}
+/**
+ * One entry in the media_folders rules array — maps a folder name on disk
+ * to a tag used in output. Re-exported from core/rules/helpers.ts so existing
+ * imports from core/types keep working.
+ */
+import type { MediaFolder } from './rules/helpers'
+export type { MediaFolder }
 
-/** Shared fields present in every media type config section */
+/**
+ * Shared fields present in every media type config section.
+ * config.json now only carries the per-machine root_path. Everything else
+ * (extensions, patterns, conventions, the media_folders list) lives in the
+ * rules layer (src/core/rules/<type>.ts and rules/<type>.yaml).
+ */
 export interface BaseMediaConfig {
   root_path: string
-  media_folders: MediaFolder[]
-  primary_extension: string[] // Always a list e.g. [".mp4"] or [".mp4", ".mkv"]
 }
 
-/** Config section for movies */
-export interface MoviesConfig extends BaseMediaConfig {
-  video_extensions: string[]
-}
-
-/** Config section for shows */
-export interface ShowsConfig extends BaseMediaConfig {
-  video_extensions: string[]
-  // ignored_season_names moved to rules/shows.yaml (it's a Plex naming
-  // convention, not a per-user library path). See src/core/rules/shows.ts.
-}
-
-/** Config section for music */
-export interface MusicConfig extends BaseMediaConfig {
-  audio_extensions: string[]
-}
-
-/** Config section for audiobooks */
-export interface AudiobooksConfig extends BaseMediaConfig {
-  audio_extensions: string[]
-}
+/**
+ * Per-type config interfaces. All four are structurally identical to
+ * BaseMediaConfig now — kept as named aliases for documentation and so
+ * future per-type config fields have a natural home.
+ */
+export type MoviesConfig = BaseMediaConfig
+export type ShowsConfig = BaseMediaConfig
+export type MusicConfig = BaseMediaConfig
+export type AudiobooksConfig = BaseMediaConfig
 
 /** The full shape of config.json */
 export interface AppConfig {
@@ -186,6 +179,14 @@ export interface BookOutput {
  * Adding a new media type means implementing this interface in a new file.
  */
 export interface MediaModule<TRecord, TOutput, TConfig extends BaseMediaConfig> {
+  /**
+   * Return the effective media_folders for this module. The factory resolves
+   * this from rules.media_folders, synthesizing a single-entry list pointing
+   * at root_path (tag: "default") when the user hasn't configured any.
+   * The core scanner iterates whatever this returns.
+   */
+  getMediaFolders(): MediaFolder[]
+
   /** Walk one media folder and return a map of records found */
   scanMediaFolder(
     folderPath: string,
@@ -200,9 +201,6 @@ export interface MediaModule<TRecord, TOutput, TConfig extends BaseMediaConfig> 
 
   /** Convert internal records to the final output shape for JSON */
   serialize(records: Map<string, TRecord>): TOutput[]
-
-  /** Set the tag order from config so output is sorted consistently */
-  initTagOrder(mediaFolders: MediaFolder[]): void
 
   /**
    * Optional: runs once after all media folders have been scanned and merged.

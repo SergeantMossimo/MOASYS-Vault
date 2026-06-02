@@ -19,8 +19,12 @@ import { WarningCollector, WarningsOutput, MediaModule, BaseMediaConfig } from '
 // ─────────────────────────────────────────────
 
 /**
- * Walk the media_folders defined in config and delegate per-folder
+ * Walk the effective media_folders for this module and delegate per-folder
  * parsing to the media module's scanMediaFolder() function.
+ *
+ * The folder list comes from the module's getMediaFolders() — which reads
+ * from rules.media_folders, or returns a single synthetic entry pointing
+ * at root_path with tag "default" when the user hasn't configured any.
  *
  * Returns a Map of { unique_key -> record } where the record structure
  * is defined by the media module.
@@ -31,9 +35,10 @@ export function scan<TRecord, TOutput, TConfig extends BaseMediaConfig>(
   warnings: WarningCollector
 ): Map<string, TRecord> {
   const records = new Map<string, TRecord>()
-  const { root_path, media_folders } = config
+  const { root_path } = config
+  const mediaFolders = mediaModule.getMediaFolders()
 
-  for (const mf of media_folders) {
+  for (const mf of mediaFolders) {
     const folderPath = path.join(root_path, mf.name)
 
     // Skip gracefully if the folder doesn't exist on this machine
@@ -42,7 +47,13 @@ export function scan<TRecord, TOutput, TConfig extends BaseMediaConfig>(
       continue
     }
 
-    console.log(`    [SCAN] ${mf.name} (${mf.tag})`)
+    // For the synthetic single-entry case (empty name + "default" tag), log
+    // a friendlier message so the user understands what's happening.
+    if (mf.name === '') {
+      console.log(`    [SCAN] root_path (no media_folders configured; tag: ${mf.tag})`)
+    } else {
+      console.log(`    [SCAN] ${mf.name} (${mf.tag})`)
+    }
 
     // Ask the media module to scan this folder and return its records
     const incoming = mediaModule.scanMediaFolder(folderPath, mf.name, mf.tag, config, warnings)

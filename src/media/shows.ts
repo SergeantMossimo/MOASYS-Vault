@@ -19,18 +19,11 @@
 import fs from 'fs'
 import path from 'path'
 
-import {
-  ShowsConfig,
-  MediaFolder,
-  ShowRecord,
-  ShowOutput,
-  WarningCollector,
-  MediaModule,
-} from '../core/types'
+import { ShowsConfig, ShowRecord, ShowOutput, WarningCollector, MediaModule } from '../core/types'
 import { hasExtension, isPrimary, formatPrimaryExts, findUnexpectedEntries } from '../core/files'
 import { findNumericGaps } from '../core/gaps'
 import { ShowsRules } from '../core/rules/shows'
-import { compilePattern } from '../core/rules/helpers'
+import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -117,12 +110,11 @@ export function createShowsModule(
   // Pre-lowercase the ignored names once rather than on every season check.
   const ignoredNamesLower = rules.ignored_season_names.map(n => n.toLowerCase())
 
-  let qualityOrder: string[] = []
+  const effectiveMediaFolders = resolveMediaFolders(rules.media_folders)
+  const qualityOrder = effectiveMediaFolders.map(mf => mf.tag)
 
   return {
-    initTagOrder(mediaFolders: MediaFolder[]): void {
-      qualityOrder = mediaFolders.map(mf => mf.tag)
-    },
+    getMediaFolders: () => effectiveMediaFolders,
 
     scanMediaFolder(
       folderPath: string,
@@ -139,7 +131,7 @@ export function createShowsModule(
       // this check. Plex expects each show inside a Show Title (YEAR)/ folder.
       if (rules.checks.warn_loose_files) {
         const looseRoot = rootEntries.filter(
-          e => e.isFile() && hasExtension(e.name, config.video_extensions)
+          e => e.isFile() && hasExtension(e.name, rules.video_extensions)
         )
         if (looseRoot.length > 0) {
           warnings.add(
@@ -153,7 +145,7 @@ export function createShowsModule(
       if (rules.checks.warn_unexpected_entries) {
         const unexpected = findUnexpectedEntries(
           rootEntries,
-          config.video_extensions,
+          rules.video_extensions,
           rules.sidecar_extensions
         )
         if (unexpected.length > 0) {
@@ -197,7 +189,7 @@ export function createShowsModule(
         // them) — silently dropped from the catalog without this check.
         if (rules.checks.warn_loose_files) {
           const looseShow = seasonEntries.filter(
-            e => e.isFile() && hasExtension(e.name, config.video_extensions)
+            e => e.isFile() && hasExtension(e.name, rules.video_extensions)
           )
           if (looseShow.length > 0) {
             warnings.add(
@@ -213,7 +205,7 @@ export function createShowsModule(
         if (rules.checks.warn_unexpected_entries) {
           const unexpected = findUnexpectedEntries(
             seasonEntries,
-            config.video_extensions,
+            rules.video_extensions,
             rules.sidecar_extensions
           )
           if (unexpected.length > 0) {
@@ -285,7 +277,7 @@ export function createShowsModule(
           if (rules.checks.warn_unexpected_entries) {
             const unexpected = findUnexpectedEntries(
               allFiles,
-              config.video_extensions,
+              rules.video_extensions,
               rules.sidecar_extensions
             )
             if (unexpected.length > 0) {
@@ -299,10 +291,10 @@ export function createShowsModule(
           }
 
           const videoFiles = allFiles.filter(
-            f => f.isFile() && hasExtension(f.name, config.video_extensions)
+            f => f.isFile() && hasExtension(f.name, rules.video_extensions)
           )
-          const nonPrimary = videoFiles.filter(f => !isPrimary(f.name, config))
-          const primaryFiles = videoFiles.filter(f => isPrimary(f.name, config))
+          const nonPrimary = videoFiles.filter(f => !isPrimary(f.name, rules.primary_extension))
+          const primaryFiles = videoFiles.filter(f => isPrimary(f.name, rules.primary_extension))
 
           if (videoFiles.length === 0) {
             if (rules.checks.warn_no_videos) {
@@ -316,7 +308,7 @@ export function createShowsModule(
               const ext = path.extname(f.name).toLowerCase()
               warnings.add(
                 path.join(seasonRel, f.name),
-                `${formatPrimaryExts(config)} video file — may need re-encoding`,
+                `${formatPrimaryExts(rules.primary_extension)} video file — may need re-encoding`,
                 ext
               )
             }

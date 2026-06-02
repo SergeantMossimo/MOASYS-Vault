@@ -20,7 +20,6 @@ import path from 'path'
 
 import {
   MusicConfig,
-  MediaFolder,
   ArtistRecord,
   ArtistOutput,
   WarningCollector,
@@ -35,7 +34,7 @@ import {
 } from '../core/files'
 import { findNumericGaps } from '../core/gaps'
 import { MusicRules } from '../core/rules/music'
-import { compilePattern } from '../core/rules/helpers'
+import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -88,12 +87,11 @@ export function createMusicModule(
   const multiDiscRegex = compilePattern(rules.patterns.multi_disc)
   const singleDiscRegex = compilePattern(rules.patterns.single_disc)
 
-  let mediaTypeOrder: string[] = []
+  const effectiveMediaFolders = resolveMediaFolders(rules.media_folders)
+  const mediaTypeOrder = effectiveMediaFolders.map(mf => mf.tag)
 
   return {
-    initTagOrder(mediaFolders: MediaFolder[]): void {
-      mediaTypeOrder = mediaFolders.map(mf => mf.tag)
-    },
+    getMediaFolders: () => effectiveMediaFolders,
 
     scanMediaFolder(
       folderPath: string,
@@ -110,7 +108,7 @@ export function createMusicModule(
       // this check. Plex expects every track to live inside Artist/Album/.
       if (rules.checks.warn_loose_files) {
         const looseRoot = rootEntries.filter(
-          e => e.isFile() && hasExtension(e.name, config.audio_extensions)
+          e => e.isFile() && hasExtension(e.name, rules.audio_extensions)
         )
         if (looseRoot.length > 0) {
           warnings.add(
@@ -125,7 +123,7 @@ export function createMusicModule(
       if (rules.checks.warn_unexpected_entries) {
         const unexpected = findUnexpectedEntries(
           rootEntries,
-          config.audio_extensions,
+          rules.audio_extensions,
           rules.sidecar_extensions
         )
         if (unexpected.length > 0) {
@@ -169,7 +167,7 @@ export function createMusicModule(
         // MediaFolder/AlbumName/tracks (no artist level around the album).
         if (rules.checks.warn_loose_files) {
           const looseArtist = albumEntries.filter(
-            e => e.isFile() && hasExtension(e.name, config.audio_extensions)
+            e => e.isFile() && hasExtension(e.name, rules.audio_extensions)
           )
           if (looseArtist.length > 0) {
             warnings.add(
@@ -189,7 +187,7 @@ export function createMusicModule(
         if (rules.checks.warn_unexpected_entries) {
           const unexpected = findUnexpectedEntries(
             albumEntries,
-            config.audio_extensions,
+            rules.audio_extensions,
             rules.sidecar_extensions
           )
           if (unexpected.length > 0) {
@@ -249,7 +247,7 @@ export function createMusicModule(
           if (rules.checks.warn_unexpected_entries) {
             const unexpected = findUnexpectedEntries(
               allFiles,
-              config.audio_extensions,
+              rules.audio_extensions,
               rules.sidecar_extensions
             )
             if (unexpected.length > 0) {
@@ -262,9 +260,9 @@ export function createMusicModule(
           }
 
           const audioFiles = allFiles.filter(
-            f => f.isFile() && hasExtension(f.name, config.audio_extensions)
+            f => f.isFile() && hasExtension(f.name, rules.audio_extensions)
           )
-          const nonPrimary = audioFiles.filter(f => !isPrimary(f.name, config))
+          const nonPrimary = audioFiles.filter(f => !isPrimary(f.name, rules.primary_extension))
 
           if (audioFiles.length === 0) {
             if (rules.checks.warn_no_audio) {
@@ -278,7 +276,7 @@ export function createMusicModule(
               const ext = path.extname(f.name).toLowerCase()
               warnings.add(
                 path.join(albumRel, f.name),
-                `${formatPrimaryExts(config)} audio file — may need re-encoding`,
+                `${formatPrimaryExts(rules.primary_extension)} audio file — may need re-encoding`,
                 ext
               )
             }

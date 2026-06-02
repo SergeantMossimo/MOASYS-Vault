@@ -8,25 +8,23 @@
 import fs from 'fs'
 import path from 'path'
 
-import { BaseMediaConfig } from './types'
-
 /** True if the filename's extension is in the provided list (case-insensitive). */
 export function hasExtension(filename: string, extensions: string[]): boolean {
   const ext = path.extname(filename).toLowerCase()
   return extensions.some(e => e.toLowerCase() === ext)
 }
 
-/** True if the file's extension matches one of the configured primary_extension entries. */
-export function isPrimary(filename: string, config: BaseMediaConfig): boolean {
-  return hasExtension(filename, config.primary_extension)
+/** True if the file's extension matches one of the provided primary extensions. */
+export function isPrimary(filename: string, primaryExtensions: string[]): boolean {
+  return hasExtension(filename, primaryExtensions)
 }
 
 /**
  * Build the "Non-X" prefix used in warning messages for non-primary files.
  * e.g. [".mp4"] -> "Non-.MP4"   [".mp4", ".mkv"] -> "Non-.MP4/.MKV"
  */
-export function formatPrimaryExts(config: BaseMediaConfig): string {
-  return 'Non-' + config.primary_extension.map(e => e.toUpperCase()).join('/')
+export function formatPrimaryExts(primaryExtensions: string[]): string {
+  return 'Non-' + primaryExtensions.map(e => e.toUpperCase()).join('/')
 }
 
 /**

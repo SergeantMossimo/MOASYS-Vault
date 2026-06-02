@@ -13,6 +13,9 @@
     "probe:music": "tsx src/probe/runner.ts --type music",
     "probe:audiobooks": "tsx src/probe/runner.ts --type audiobooks",
     "probe:all": "tsx src/probe/runner.ts --all",
+    "validate:movies": "tsx src/validate/runner.ts --type movies",
+    "validate:shows": "tsx src/validate/runner.ts --type shows",
+    "validate:all": "tsx src/validate/runner.ts --all",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "lint:md": "markdownlint-cli2 **/*.md #node_modules",
@@ -34,6 +37,7 @@
   "dependencies": {
     "ffprobe-static": "^3.1.0",
     "js-yaml": "^4.1.1",
+    "music-metadata": "^11.12.3",
     "zod": "^4.4.3"
   }
 }

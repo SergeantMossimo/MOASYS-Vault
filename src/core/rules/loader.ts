@@ -112,10 +112,18 @@ export function loadRules<T>(opts: LoadRulesOptions<T>): T {
       console.error(`    ${(err as Error).message}`)
       process.exit(1)
     }
-    if (userRules !== null && userRules !== undefined) {
+    // A file consisting only of comments parses to null. Distinguish that
+    // from a file with real overrides so users can tell at a glance whether
+    // anything they wrote is taking effect.
+    if (isPlainObject(userRules) && Object.keys(userRules).length > 0) {
+      const overrideCount = Object.keys(userRules).length
       merged = deepMerge(defaults, userRules)
+      console.log(`    [RULES] Loaded ${overrideCount} override(s) from rules/${mediaType}.yaml`)
+    } else {
+      console.log(
+        `    [RULES] Using code defaults (rules/${mediaType}.yaml has no active overrides)`
+      )
     }
-    console.log(`    [RULES] Loaded overrides from rules/${mediaType}.yaml`)
   } else {
     console.log(`    [RULES] Using code defaults (no rules/${mediaType}.yaml)`)
   }

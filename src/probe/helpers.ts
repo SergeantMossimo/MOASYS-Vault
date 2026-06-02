@@ -17,7 +17,7 @@
 
 import { probeFile } from './ffprobe'
 import { ProbeCache } from './cache'
-import { ProbeData } from './types'
+import { ProbeData, TagData } from './types'
 
 // ─────────────────────────────────────────────
 // Probe tasks
@@ -52,13 +52,29 @@ export interface ProbedFile {
 // ─────────────────────────────────────────────
 
 /**
+ * Optional async reader for embedded tag data. Music probe passes one in to
+ * also capture ID3 / Vorbis comment / MP4 tags during the same walk.
+ * Other media types skip this — tags don't carry meaningful metadata for
+ * movies, shows, or audiobooks in this project.
+ */
+export type TagReader = (absolutePath: string) => Promise<TagData | null>
+
+/**
  * Return cached probe data when fresh, otherwise spawn ffprobe and cache the result.
+ * If `readTags` is provided, also populate ProbeData.tags from the same file.
  * Errors propagate — callers decide whether to warn or abort.
  */
-export async function probeOrCache(task: ProbeTask, cache: ProbeCache): Promise<ProbeData> {
+export async function probeOrCache(
+  task: ProbeTask,
+  cache: ProbeCache,
+  readTags?: TagReader
+): Promise<ProbeData> {
   const cached = cache.get(task.relativePath, task.mtime, task.size)
   if (cached) return cached
   const data = await probeFile(task.absolutePath)
+  if (readTags) {
+    data.tags = await readTags(task.absolutePath)
+  }
   cache.set(task.relativePath, task.mtime, task.size, data)
   return data
 }
@@ -68,11 +84,15 @@ export async function probeOrCache(task: ProbeTask, cache: ProbeCache): Promise<
  * Individual file errors are swallowed and logged — one corrupt file
  * shouldn't take down a whole library scan. Failed files are excluded
  * from the returned results.
+ *
+ * Pass a `readTags` callback when the caller wants embedded metadata
+ * captured alongside the ffprobe data (music probe uses this).
  */
 export async function probeBatch(
   tasks: ProbeTask[],
   cache: ProbeCache,
-  onProgress?: (done: number, total: number, cached: number) => void
+  onProgress?: (done: number, total: number, cached: number) => void,
+  readTags?: TagReader
 ): Promise<ProbedFile[]> {
   const results: ProbedFile[] = []
   let cachedCount = 0
@@ -82,7 +102,7 @@ export async function probeBatch(
     try {
       // Detect cache hit before calling probeOrCache so we can count it.
       const wasCached = cache.get(task.relativePath, task.mtime, task.size) !== null
-      const data = await probeOrCache(task, cache)
+      const data = await probeOrCache(task, cache, readTags)
       if (wasCached) cachedCount++
       results.push({ task, data })
     } catch (err) {

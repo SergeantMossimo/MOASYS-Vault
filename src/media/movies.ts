@@ -20,7 +20,6 @@ import path from 'path'
 
 import {
   MoviesConfig,
-  MediaFolder,
   MovieRecord,
   MovieOutput,
   WarningCollector,
@@ -28,7 +27,7 @@ import {
 } from '../core/types'
 import { hasExtension, isPrimary, formatPrimaryExts, findUnexpectedEntries } from '../core/files'
 import { MoviesRules } from '../core/rules/movies'
-import { compilePattern } from '../core/rules/helpers'
+import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -120,13 +119,14 @@ export function createMoviesModule(
   const yearMin = rules.year_range.min
   const yearMax = rules.year_range.max as number
 
-  let qualityOrder: string[] = []
+  // Resolve the effective folder list once: user's configured media_folders,
+  // or the synthetic single-entry default pointing at root_path with tag
+  // "default" when nothing is configured.
+  const effectiveMediaFolders = resolveMediaFolders(rules.media_folders)
+  const qualityOrder = effectiveMediaFolders.map(mf => mf.tag)
 
   return {
-    /** Set the canonical quality sort order from config */
-    initTagOrder(mediaFolders: MediaFolder[]): void {
-      qualityOrder = mediaFolders.map(mf => mf.tag)
-    },
+    getMediaFolders: () => effectiveMediaFolders,
 
     /**
      * Walk one media folder (e.g. UHD/) and return a Map of movie records.
@@ -147,7 +147,7 @@ export function createMoviesModule(
       // this check. Plex expects each movie inside a Title (YEAR)/ folder.
       if (rules.checks.warn_loose_files) {
         const looseRoot = rootEntries.filter(
-          e => e.isFile() && hasExtension(e.name, config.video_extensions)
+          e => e.isFile() && hasExtension(e.name, rules.video_extensions)
         )
         if (looseRoot.length > 0) {
           warnings.add(
@@ -162,7 +162,7 @@ export function createMoviesModule(
       if (rules.checks.warn_unexpected_entries) {
         const unexpected = findUnexpectedEntries(
           rootEntries,
-          config.video_extensions,
+          rules.video_extensions,
           rules.sidecar_extensions
         )
         if (unexpected.length > 0) {
@@ -209,7 +209,7 @@ export function createMoviesModule(
         if (rules.checks.warn_unexpected_entries) {
           const unexpected = findUnexpectedEntries(
             allFiles,
-            config.video_extensions,
+            rules.video_extensions,
             rules.sidecar_extensions
           )
           if (unexpected.length > 0) {
@@ -223,10 +223,10 @@ export function createMoviesModule(
         }
 
         const videoFiles = allFiles.filter(
-          f => f.isFile() && hasExtension(f.name, config.video_extensions)
+          f => f.isFile() && hasExtension(f.name, rules.video_extensions)
         )
-        const nonPrimary = videoFiles.filter(f => !isPrimary(f.name, config))
-        const primaryFiles = videoFiles.filter(f => isPrimary(f.name, config))
+        const nonPrimary = videoFiles.filter(f => !isPrimary(f.name, rules.primary_extension))
+        const primaryFiles = videoFiles.filter(f => isPrimary(f.name, rules.primary_extension))
 
         if (videoFiles.length === 0) {
           if (rules.checks.warn_no_videos) {
@@ -240,7 +240,7 @@ export function createMoviesModule(
             const ext = path.extname(f.name).toLowerCase()
             warnings.add(
               path.join(folderRel, f.name),
-              `${formatPrimaryExts(config)} video file — may need re-encoding`,
+              `${formatPrimaryExts(rules.primary_extension)} video file — may need re-encoding`,
               ext
             )
           }

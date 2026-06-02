@@ -1,0 +1,73 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MOASYS-Vault — Audiobooks rules
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# This file shows every available option. Uncomment a line (or block) to
+# override the code default with your own value. Anything you leave commented
+# uses the code default.
+#
+# Code defaults live in src/core/rules/audiobooks.ts. Author folder parsing
+# (single author, comma-separated, "and"-joined) lives in code — not exposed
+# as YAML because the logic isn't regex-shaped.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Regex patterns ──────────────────────────────────────────────────────────
+# Chapter files: scanner tries multi_disc first, then single_disc.
+#   "01 - Chapter Name.m4b"          ← single file / single disc
+#   "101 - Chapter Name.mp3"         ← Book On CD: disc 1, chapter 1
+#
+# patterns:
+#   single_disc: '^(?<chapter>\d{2})\s-\s(?<name>.+)$'
+#   multi_disc:  '^(?<disc>\d+)(?<chapter>\d{2})\s-\s(?<name>.+)$'
+
+# ── Media folders ───────────────────────────────────────────────────────────
+# Subfolders under root_path to walk, each tagged for output. The `tag` is
+# the label that appears in each book's `media_type` field in audiobooks.json.
+#
+# Leave this commented out or set to [] for a flat library — records will be
+# tagged "default".
+media_folders:
+  - { name: Audible,       tag: Audible }
+  - { name: Other Audible, tag: Other Audible }
+  - { name: Book On CD,    tag: Book On CD }
+
+# ── File extensions ─────────────────────────────────────────────────────────
+# Primary = the formats you expect; anything else triggers warn_non_primary.
+# Audio = every extension treated as a chapter file; outside this list = "unexpected".
+#
+# primary_extension:
+#   - .mp3
+#   - .flac
+#
+# audio_extensions:
+#   - .m4b
+#   - .mp3
+#   - .aac
+#   - .m4a
+#   - .flac
+
+# ── Sidecar files ───────────────────────────────────────────────────────────
+# Extensions silently allowed anywhere in the audiobooks hierarchy. PDF
+# booklets are common with downloaded audiobooks.
+#
+# sidecar_extensions:
+#   - .nfo
+#   - .jpg
+#   - .jpeg
+#   - .png
+#   - .webp
+#   - .cue
+#   - .pdf
+
+# ── Per-warning toggles ─────────────────────────────────────────────────────
+# All warnings ship enabled. Set to false to silence individually.
+#
+# checks:
+#   warn_non_primary: true        # File isn't the configured primary format
+#   warn_no_audio: true           # Book folder has no audio files
+#   warn_bad_chapter_name: true   # Chapter file name doesn't match any pattern
+#   warn_chapter_gaps: true       # Gap detected in chapter numbers (per-disc)
+#   warn_duplicate_book: true     # Same book title in more than one media folder
+#   warn_loose_files: true        # Audio files at unexpected nesting level
+#   warn_extra_subfolders: true   # Unexpected subfolders inside a book folder
+#   warn_unexpected_entries: true # Non-audio, non-sidecar files

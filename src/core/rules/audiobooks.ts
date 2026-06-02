@@ -13,7 +13,7 @@
 
 import { z } from 'zod'
 
-import { PatternSchema } from './helpers'
+import { PatternSchema, MediaFolderSchema } from './helpers'
 
 export const AudiobooksRulesSchema = z.object({
   /**
@@ -29,6 +29,15 @@ export const AudiobooksRulesSchema = z.object({
     single_disc: PatternSchema,
     multi_disc: PatternSchema,
   }),
+
+  /** Subfolders under root_path to walk. Empty = walk root_path directly with "default" tag. */
+  media_folders: z.array(MediaFolderSchema),
+
+  /** Expected primary file format(s) for audiobook chapters. */
+  primary_extension: z.array(z.string()).min(1),
+
+  /** All file extensions the scanner recognizes as audio files. */
+  audio_extensions: z.array(z.string()).min(1),
 
   /**
    * File extensions for sidecar files (NFO metadata, cover art).
@@ -71,6 +80,9 @@ export const defaultAudiobooksRules: AudiobooksRules = AudiobooksRulesSchema.par
     single_disc: '^(?<chapter>\\d{2})\\s-\\s(?<name>.+)$',
     multi_disc: '^(?<disc>\\d+)(?<chapter>\\d{2})\\s-\\s(?<name>.+)$',
   },
+  media_folders: [],
+  primary_extension: ['.mp3', '.flac'],
+  audio_extensions: ['.m4b', '.mp3', '.aac', '.m4a', '.flac'],
   // Audiobook sidecars — NFO metadata, cover art, cuesheets, PDF booklets.
   sidecar_extensions: ['.nfo', '.jpg', '.jpeg', '.png', '.webp', '.cue', '.pdf'],
   checks: {
