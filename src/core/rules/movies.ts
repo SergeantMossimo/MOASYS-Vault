@@ -14,7 +14,7 @@
 
 import { z } from 'zod'
 
-import { PatternSchema, MediaFolderSchema } from './helpers'
+import { PatternSchema, CategorySchema } from './helpers'
 
 export const MoviesRulesSchema = z.object({
   /** Regex patterns for folder and file names. Must use named capture groups. */
@@ -26,11 +26,12 @@ export const MoviesRulesSchema = z.object({
   }),
 
   /**
-   * Subfolders under root_path to walk, each tagged for output. Empty array
-   * (or omitted) means the scanner walks root_path itself with a "default"
-   * tag — useful for flat libraries without quality buckets.
+   * Subfolders under root_path to walk. Each category's name appears as the
+   * `category` field on every version that lives in that subfolder. Empty
+   * (or omitted) means the scanner walks root_path itself and labels records
+   * with "default" — useful for flat libraries without quality buckets.
    */
-  media_folders: z.array(MediaFolderSchema),
+  categories: z.array(CategorySchema),
 
   /**
    * Expected primary file format(s) for movies in this library. Files with
@@ -73,19 +74,22 @@ export const MoviesRulesSchema = z.object({
   sidecar_extensions: z.array(z.string()),
 
   /**
-   * Quality buckets for ffprobe-driven validation. Each bucket groups one or
-   * more folder tags (e.g. UHD + Other UHD) and defines a pixel-width range
-   * the file's long edge must fall within. Compared against max(width, height)
-   * so HandBrake-cropped or rotated files still classify correctly.
+   * Quality buckets for ffprobe-driven validation. Each bucket's `name`
+   * matches a category name — a file in a category named "UHD" is checked
+   * against the bucket named "UHD". The pixel-width range applies to the
+   * file's long edge (max of width, height) so HandBrake-cropped or rotated
+   * files still classify correctly.
    *
-   * Empty by default — only files in folders whose tag appears in a bucket
-   * are checked, so libraries with custom folder structures don't get bogus
-   * warnings until they configure their own buckets.
+   * Categories that don't have a matching bucket (e.g. "Other UHD" when no
+   * bucket of that name exists) are silently passed. This is intentional —
+   * the warning is opt-in by bucket configuration.
+   *
+   * Empty by default — libraries with custom folder structures don't get
+   * bogus warnings until they configure their own buckets.
    */
   quality_thresholds: z.array(
     z.object({
-      name: z.string(), // Display name used in warning messages, e.g. "UHD"
-      tags: z.array(z.string()).min(1),
+      name: z.string(), // Must match a category name to take effect
       min_width: z.number().int().positive().optional(),
       max_width: z.number().int().positive().optional(),
     })
@@ -157,19 +161,18 @@ export const defaultMoviesRules: MoviesRules = MoviesRulesSchema.parse({
     folder: '^(?<title>.+)\\s\\((?<year>\\d{4})\\)$',
     file: '^(?<title>.+)\\s\\((?<year>\\d{4})\\)(?:\\s\\{edition-(?<edition>[^}]*)\\})?$',
   },
-  media_folders: [],
+  categories: [],
   primary_extension: ['.mp4'],
   video_extensions: ['.mp4', '.mkv', '.avi', '.m4v', '.mov', '.wmv', '.ts', '.m2ts', '.webm'],
   year_range: {
     min: 1888, // Roundhay Garden Scene
     max: 'current',
   },
-  acceptable_quality_combos: [
-    ['UHD', 'HD'],
-    ['Other UHD', 'Other HD'],
-    ['HD', 'Other UHD'],
-    ['UHD', 'Other HD'],
-  ],
+  // Neutral default: a single canonical UHD↔HD pairing that's commonly
+  // intentional (a 4K master + a 1080p downscale for playback compatibility).
+  // Libraries with custom quality folders (e.g. "Other UHD", "Other HD") add
+  // their own combos via rules/movies.local.yaml.
+  acceptable_quality_combos: [['UHD', 'HD']],
   // Plex sidecar formats — metadata (.nfo), artwork (.jpg/.png/.webp/.tbn),
   // subtitles (.srt/.ass/.ssa/.vtt/.sub/.idx). Silently allowed everywhere.
   sidecar_extensions: [

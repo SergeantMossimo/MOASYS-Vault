@@ -10,14 +10,16 @@ output/
 # Always rebuildable from the media library, never committed.
 cache/
 
-# Rules — single file per media type at rules/<type>.yaml.
+# Rules — two-tier model.
 #
-# These ARE committed in this repo because they capture this library's
-# naming conventions. If you fork the project and your overrides are
-# personal (not meant to be shared), un-comment the line below to keep
-# them local-only.
+# rules/<type>.yaml is the committed default snapshot (shipped with the
+# repo, mirrors what the code uses if no file existed). Edit it to change
+# the project-wide defaults for everyone using this checkout.
 #
-# rules/*.yaml
+# rules/<type>.local.yaml is your personal override layer — gitignored so
+# library-specific values (quality_thresholds, custom ignored_season_names,
+# extra categories) never end up in the repo.
+rules/*.local.yaml
 
 # Secrets — TMDB API key etc. NEVER commit this file.
 .secrets.json

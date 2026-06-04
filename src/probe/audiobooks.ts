@@ -11,11 +11,11 @@ import path from 'path'
 import { AudiobooksConfig, WarningCollector } from '../core/types'
 import { isPrimary } from '../core/files'
 import { AudiobooksRules } from '../core/rules/audiobooks'
-import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
+import { compilePattern, resolveCategories } from '../core/rules/helpers'
 
 import { ProbeCache } from './cache'
 import { ProbeTask, ProbedFile, probeBatch } from './helpers'
-import { BookProbeOutput, ChapterProbe } from './types'
+import { BookProbeOutput, ChapterProbe, ProbeData, ProbeResult } from './types'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -77,10 +77,10 @@ function collectTasks(
   const singleDiscRegex = compilePattern(rules.patterns.single_disc)
   const out: Array<{ task: ProbeTask; identity: ChapterIdentity }> = []
 
-  for (const mf of resolveMediaFolders(rules.media_folders)) {
-    const folderPath = path.join(config.root_path, mf.name)
+  for (const cat of resolveCategories(rules.categories)) {
+    const folderPath = path.join(config.root_path, cat.folderName)
     if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
-      console.log(`    [SKIP] Media folder not found: ${folderPath}`)
+      console.log(`    [SKIP] Category folder not found: ${folderPath}`)
       continue
     }
 
@@ -125,16 +125,18 @@ function collectTasks(
 
           out.push({
             task: {
-              relativePath: toRel(path.join(mf.name, authorEntry.name, bookEntry.name, f.name)),
+              relativePath: toRel(
+                path.join(cat.folderName, authorEntry.name, bookEntry.name, f.name)
+              ),
               absolutePath,
-              folderTag: mf.tag,
+              category: cat.name,
               mtime: stat.mtimeMs,
               size: stat.size,
             },
             identity: {
               title: bookEntry.name,
               authors,
-              mediaType: mf.tag,
+              mediaType: cat.name,
               disc: parsed.disc,
               chapter: parsed.chapter,
             },
@@ -171,7 +173,7 @@ function aggregate(
     if (!book.media_type.includes(id.mediaType)) book.media_type.push(id.mediaType)
 
     const chapter: ChapterProbe = {
-      quality: task.folderTag,
+      quality: task.category,
       path: task.relativePath,
       disc: id.disc,
       chapter: id.chapter,
@@ -208,7 +210,7 @@ export async function probeAudiobooks(
   rules: AudiobooksRules,
   cache: ProbeCache,
   _warnings: WarningCollector
-): Promise<BookProbeOutput[]> {
+): Promise<ProbeResult<BookProbeOutput[]>> {
   const collected = collectTasks(config, rules)
   console.log(`    [PROBE] ${collected.length} primary files to probe`)
 
@@ -222,6 +224,9 @@ export async function probeAudiobooks(
     }
   })
 
-  const mediaTypeOrder = resolveMediaFolders(rules.media_folders).map(mf => mf.tag)
-  return aggregate(probed, identities, mediaTypeOrder)
+  const mediaTypeOrder = resolveCategories(rules.categories).map(c => c.name)
+  const byPath = new Map<string, ProbeData>()
+  for (const { task, data } of probed) byPath.set(task.relativePath, data)
+
+  return { output: aggregate(probed, identities, mediaTypeOrder), byPath }
 }

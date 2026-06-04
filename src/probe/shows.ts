@@ -14,11 +14,11 @@ import path from 'path'
 import { ShowsConfig, WarningCollector } from '../core/types'
 import { isPrimary } from '../core/files'
 import { ShowsRules } from '../core/rules/shows'
-import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
+import { compilePattern, resolveCategories } from '../core/rules/helpers'
 
 import { ProbeCache } from './cache'
 import { ProbeTask, ProbedFile, classifyQuality, probeBatch } from './helpers'
-import { ShowProbeOutput, ShowSeasonProbe, EpisodeProbe } from './types'
+import { ShowProbeOutput, ShowSeasonProbe, EpisodeProbe, ProbeData, ProbeResult } from './types'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -108,10 +108,10 @@ function collectTasks(
 
   const out: Array<{ task: ProbeTask; identity: EpisodeIdentity }> = []
 
-  for (const mf of resolveMediaFolders(rules.media_folders)) {
-    const folderPath = path.join(config.root_path, mf.name)
+  for (const cat of resolveCategories(rules.categories)) {
+    const folderPath = path.join(config.root_path, cat.folderName)
     if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
-      console.log(`    [SKIP] Media folder not found: ${folderPath}`)
+      console.log(`    [SKIP] Category folder not found: ${folderPath}`)
       continue
     }
 
@@ -164,9 +164,11 @@ function collectTasks(
 
           out.push({
             task: {
-              relativePath: toRel(path.join(mf.name, showEntry.name, seasonEntry.name, f.name)),
+              relativePath: toRel(
+                path.join(cat.folderName, showEntry.name, seasonEntry.name, f.name)
+              ),
               absolutePath,
-              folderTag: mf.tag,
+              category: cat.name,
               mtime: stat.mtimeMs,
               size: stat.size,
             },
@@ -214,7 +216,7 @@ function aggregate(
       show.seasons.set(id.seasonLabel, seasonEps)
     }
     seasonEps.push({
-      quality: task.folderTag,
+      quality: task.category,
       path: task.relativePath,
       episode: id.episodeId,
       size_bytes: data.size_bytes,
@@ -266,7 +268,7 @@ export async function probeShows(
   rules: ShowsRules,
   cache: ProbeCache,
   warnings: WarningCollector
-): Promise<ShowProbeOutput[]> {
+): Promise<ProbeResult<ShowProbeOutput[]>> {
   const collected = collectTasks(config, rules)
   console.log(`    [PROBE] ${collected.length} primary files to probe`)
 
@@ -286,7 +288,7 @@ export async function probeShows(
       const { bucket, longEdge, fits } = classifyQuality(
         data.video.width,
         data.video.height,
-        task.folderTag,
+        task.category,
         rules.quality_thresholds
       )
       if (bucket !== null && !fits) {
@@ -296,12 +298,15 @@ export async function probeShows(
             `doesn't fit bucket '${bucket.name}' (` +
             `${bucket.min_width !== undefined ? `min ${bucket.min_width}` : 'no min'}, ` +
             `${bucket.max_width !== undefined ? `max ${bucket.max_width}` : 'no max'}` +
-            `) for folder tag '${task.folderTag}'`
+            `) for category '${task.category}'`
         )
       }
     }
   }
 
-  const qualityOrder = resolveMediaFolders(rules.media_folders).map(mf => mf.tag)
-  return aggregate(probed, identities, qualityOrder)
+  const qualityOrder = resolveCategories(rules.categories).map(c => c.name)
+  const byPath = new Map<string, ProbeData>()
+  for (const { task, data } of probed) byPath.set(task.relativePath, data)
+
+  return { output: aggregate(probed, identities, qualityOrder), byPath }
 }

@@ -62,31 +62,40 @@ export function compilePattern(p: Pattern): RegExp {
 }
 
 /**
- * One entry in the media_folders rules array — maps a folder name on disk
- * to a tag used in output. Same shape that used to live in `BaseMediaConfig`
- * as part of `config.json`. Now part of rules so it sits alongside the things
- * that reference its tags (e.g. movies' `quality_thresholds`).
+ * One entry in the `categories` rules array — a subfolder under root_path
+ * that the scanner walks. The `name` is the folder name on disk AND the
+ * label used in output (`category` field on each version).
  *
- * Leaving `media_folders` empty (or unset) is supported — the scanner falls
- * back to walking `root_path` directly and tagging records with `"default"`.
+ * Leaving `categories` empty (or unset) is supported — the scanner falls
+ * back to walking `root_path` directly and labelling records with `"default"`.
  */
-export const MediaFolderSchema = z.object({
-  /** Subfolder name on disk under root_path, e.g. "UHD" */
-  name: z.string(),
-  /** Label used in output JSON, e.g. "UHD" or "Music" */
-  tag: z.string(),
+export const CategorySchema = z.object({
+  /** Subfolder name on disk under root_path, e.g. "UHD". Also used as the output label. */
+  name: z.string().min(1),
 })
 
-export type MediaFolder = z.infer<typeof MediaFolderSchema>
-
-/** Synthetic single-entry list used when media_folders is empty. */
-export const IMPLICIT_MEDIA_FOLDER: MediaFolder = { name: '', tag: 'default' }
+export type Category = z.infer<typeof CategorySchema>
 
 /**
- * Resolve the effective media_folders list for a media module.
- * If the rules supplied any folders, use them. Otherwise return a synthetic
- * single-entry list pointing at root_path with tag "default".
+ * Resolved internal form of a category — separates "what subfolder to walk"
+ * from "what label to put on records." For configured categories these are
+ * the same; for the synthetic root-walk case they differ ('' vs 'default').
  */
-export function resolveMediaFolders(configured: MediaFolder[]): MediaFolder[] {
-  return configured.length > 0 ? configured : [IMPLICIT_MEDIA_FOLDER]
+export interface ResolvedCategory {
+  /** Subfolder under root_path to walk; empty string means walk root_path itself. */
+  folderName: string
+  /** Label used in output records (the version's `category` field). */
+  name: string
+}
+
+/**
+ * Resolve the effective category list for a media module.
+ * If the rules supplied any categories, walk those. Otherwise return a single
+ * synthetic entry that walks root_path and labels records "default".
+ */
+export function resolveCategories(configured: Category[]): ResolvedCategory[] {
+  if (configured.length === 0) {
+    return [{ folderName: '', name: 'default' }]
+  }
+  return configured.map(c => ({ folderName: c.name, name: c.name }))
 }

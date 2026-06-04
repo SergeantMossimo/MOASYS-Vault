@@ -14,134 +14,13 @@ import path from 'path'
 import { MusicConfig, WarningCollector } from '../core/types'
 import { hasExtension, isPrimary } from '../core/files'
 import { MusicRules } from '../core/rules/music'
-import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
+import { compilePattern, resolveCategories } from '../core/rules/helpers'
 
 import { ProbeCache } from './cache'
 import { ProbeTask, ProbedFile, probeBatch } from './helpers'
 import { readTags } from './id3'
-import { ArtistProbeOutput, AlbumProbeOutput, TrackProbe, AudioProbe } from './types'
-
-// ─────────────────────────────────────────────
-// Audio quality derivation
-// ─────────────────────────────────────────────
-
-/**
- * Codecs that store audio without lossy compression. For these, quality is
- * defined by bit depth + sample rate rather than bitrate (the bitrate of a
- * FLAC file is highly variable and doesn't reflect "quality" the way it does
- * for MP3/AAC).
- */
-const LOSSLESS_CODECS = new Set(['flac', 'alac', 'wav', 'wavpack', 'ape', 'tak'])
-
-/**
- * VBR (variable bitrate) tolerance for the album quality summary. Tracks
- * of the same codec whose actual bitrates span ≤ this many kbps are
- * collapsed into a single averaged entry (e.g. "MP3 ~288"). Beyond this
- * the spread indicates real inconsistency and warrants separate entries
- * plus a warning.
- *
- * 64 kbps is wide enough to cover LAME V0 (~220-260) and similar VBR
- * presets, narrow enough that 128 vs 256 in the same album still splits.
- */
-const VBR_TOLERANCE_KBPS = 64
-
-/**
- * Format sample rate (Hz) as a clean kHz string: 44100 → "44.1", 48000 → "48",
- * 96000 → "96". No trailing ".0" on round values.
- */
-function formatKhz(hz: number): string {
-  const khz = hz / 1000
-  return khz % 1 === 0 ? String(khz) : khz.toFixed(1)
-}
-
-/**
- * Derive a human-readable quality string from an audio stream.
- *
- *   Lossless: `"FLAC 16/44.1"`, `"FLAC 24/96"`, `"ALAC 16/44.1"`
- *   Lossy:    `"MP3 320"`, `"AAC 256"`, `"OGG 192"`
- *
- * Returns null when there's no audio stream or we can't derive anything
- * meaningful (rare — ffprobe usually gives us at least codec + something).
- *
- * `containerBitrate` is the format-level bitrate from ffprobe, used as a
- * fallback when the audio stream doesn't report its own bitrate (common
- * for AAC inside MP4 containers).
- */
-export function deriveAudioQuality(
-  audio: AudioProbe | null,
-  containerBitrate: number | null
-): string | null {
-  if (!audio) return null
-  const codecUpper = audio.codec.toUpperCase()
-  const isLossless = LOSSLESS_CODECS.has(audio.codec.toLowerCase())
-
-  if (isLossless) {
-    // Lossless: codec + bit_depth/sample_rate
-    if (audio.bit_depth && audio.sample_rate) {
-      return `${codecUpper} ${audio.bit_depth}/${formatKhz(audio.sample_rate)}`
-    }
-    if (audio.sample_rate) return `${codecUpper} ${formatKhz(audio.sample_rate)}`
-    return codecUpper
-  }
-
-  // Lossy: codec + kbps. Prefer the audio stream's own bitrate, fall back
-  // to the container bitrate for codecs that don't report it directly.
-  const bps = audio.bitrate ?? containerBitrate
-  if (bps) return `${codecUpper} ${Math.round(bps / 1000)}`
-  return codecUpper
-}
-
-/**
- * Aggregate per-track quality strings into a deduplicated per-album summary
- * that accounts for VBR variance. Tracks with the same codec whose actual
- * bitrates differ by less than VBR_TOLERANCE_KBPS collapse into a single
- * `"CODEC ~avg"` entry; tracks with a wider spread or mixed codecs stay
- * separate (which triggers the `warn_quality_inconsistent` warning).
- *
- * Lossless tracks within an album always report identical bit_depth/sample
- * rate, so their per-track strings deduplicate trivially.
- */
-export function summarizeAlbumQuality(tracks: TrackProbe[]): string[] {
-  const losslessSet = new Set<string>()
-  const lossyByCodec = new Map<string, number[]>() // codec → kbps values
-
-  for (const t of tracks) {
-    if (!t.audio || !t.audio_quality) continue
-    if (LOSSLESS_CODECS.has(t.audio.codec.toLowerCase())) {
-      losslessSet.add(t.audio_quality)
-      continue
-    }
-    const bps = t.audio.bitrate ?? t.bitrate
-    if (!bps) continue
-    const codec = t.audio.codec.toLowerCase()
-    const arr = lossyByCodec.get(codec) ?? []
-    arr.push(Math.round(bps / 1000))
-    lossyByCodec.set(codec, arr)
-  }
-
-  const out: string[] = [...losslessSet]
-
-  for (const [codec, bitrates] of lossyByCodec) {
-    if (bitrates.length === 0) continue
-    const min = Math.min(...bitrates)
-    const max = Math.max(...bitrates)
-    const codecUpper = codec.toUpperCase()
-    if (max - min <= VBR_TOLERANCE_KBPS) {
-      // Within VBR tolerance — collapse to a single averaged entry rounded
-      // to the nearest 16 kbps. Tilde signals "approximate average".
-      const avg = bitrates.reduce((s, b) => s + b, 0) / bitrates.length
-      out.push(`${codecUpper} ~${Math.round(avg / 16) * 16}`)
-    } else {
-      // Spread exceeds VBR tolerance — list distinct exact values so the
-      // user can see exactly what they're dealing with.
-      for (const b of [...new Set(bitrates)].sort((a, b) => a - b)) {
-        out.push(`${codecUpper} ${b}`)
-      }
-    }
-  }
-
-  return out.sort()
-}
+import { deriveAudioQuality, summarizeAlbumQuality } from './music-quality'
+import { ArtistProbeOutput, AlbumProbeOutput, TrackProbe, ProbeData, ProbeResult } from './types'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -199,10 +78,10 @@ function collectTasks(
   const singleDiscRegex = compilePattern(rules.patterns.single_disc)
   const out: Array<{ task: ProbeTask; identity: TrackIdentity }> = []
 
-  for (const mf of resolveMediaFolders(rules.media_folders)) {
-    const folderPath = path.join(config.root_path, mf.name)
+  for (const cat of resolveCategories(rules.categories)) {
+    const folderPath = path.join(config.root_path, cat.folderName)
     if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
-      console.log(`    [SKIP] Media folder not found: ${folderPath}`)
+      console.log(`    [SKIP] Category folder not found: ${folderPath}`)
       continue
     }
 
@@ -252,16 +131,18 @@ function collectTasks(
 
           out.push({
             task: {
-              relativePath: toRel(path.join(mf.name, artistEntry.name, albumEntry.name, f.name)),
+              relativePath: toRel(
+                path.join(cat.folderName, artistEntry.name, albumEntry.name, f.name)
+              ),
               absolutePath,
-              folderTag: mf.tag,
+              category: cat.name,
               mtime: stat.mtimeMs,
               size: stat.size,
             },
             identity: {
               artist: artistEntry.name,
               album: albumEntry.name,
-              mediaType: mf.tag,
+              mediaType: cat.name,
               disc: parsed.disc,
               track: parsed.track,
             },
@@ -305,7 +186,7 @@ function aggregate(
     if (!album.media_type.includes(id.mediaType)) album.media_type.push(id.mediaType)
 
     const track: TrackProbe = {
-      quality: task.folderTag,
+      quality: task.category,
       path: task.relativePath,
       disc: id.disc,
       track: id.track,
@@ -354,7 +235,7 @@ export async function probeMusic(
   rules: MusicRules,
   cache: ProbeCache,
   warnings: WarningCollector
-): Promise<ArtistProbeOutput[]> {
+): Promise<ProbeResult<ArtistProbeOutput[]>> {
   const collected = collectTasks(config, rules)
   console.log(`    [PROBE] ${collected.length} primary files to probe`)
 
@@ -373,7 +254,7 @@ export async function probeMusic(
     readTags
   )
 
-  const mediaTypeOrder = resolveMediaFolders(rules.media_folders).map(mf => mf.tag)
+  const mediaTypeOrder = resolveCategories(rules.categories).map(c => c.name)
   const aggregated = aggregate(probed, identities, mediaTypeOrder)
 
   // Quality inconsistency check — runs after aggregation since we need the
@@ -396,7 +277,10 @@ export async function probeMusic(
   // tags. Saves time on libraries without ID3 data (rare but possible).
   analyzeTags(aggregated, rules, warnings)
 
-  return aggregated
+  const byPath = new Map<string, ProbeData>()
+  for (const { task, data } of probed) byPath.set(task.relativePath, data)
+
+  return { output: aggregated, byPath }
 }
 
 // ─────────────────────────────────────────────
@@ -479,7 +363,7 @@ function analyzeTags(
           albumPath,
           `Album has tracks by ${albumArtistSet.size} distinct artists (per AlbumArtist tag: ${sample}${more}) ` +
             `but isn't in a 'Various Artists' folder. ` +
-            `Recommended fix: move this album to '<media_folder>/Various Artists/${album.album}/' and ensure ` +
+            `Recommended fix: move this album to '<category>/Various Artists/${album.album}/' and ensure ` +
             `each track's AlbumArtist tag is set to 'Various Artists' (per-track Artist tag stays the actual performer).`
         )
       }

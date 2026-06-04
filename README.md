@@ -10,8 +10,9 @@ Built for **MOASYS** _(Mossimo's Oasis System)_ and designed to be shared.
 
 ## Features
 
-- **Three independent passes** — fast offline scan, optional ffprobe + ID3 probe, optional TMDB validation. Each writes its own files; you can run any combination.
-- **Fully config-driven** — no code changes needed. Sensible Plex defaults; uncomment to override.
+- **One catalog command per type** — a single `npm run <type>` runs probe (cache-aware) + scan in one pass, producing a clean catalog with quality data and all hygiene warnings.
+- **Optional TMDB validation** — separate pass cross-checks the catalog against TheMovieDB for movies + shows.
+- **Fully config-driven** — no code changes needed. Sensible Plex defaults; override per-library in `rules/<type>.local.yaml`.
 - **Library-agnostic** — Movies, Shows, Music, Audiobooks. Configurable regex patterns, extensions, sidecar lists, and per-warning toggles.
 - **Schema-validated rules** — typos in your YAML fail at boot with a clear error, not a cryptic crash mid-scan.
 - **Cached deep inspection** — ffprobe + TMDB calls are cached by file mtime/size and search query. Re-runs are near-instant.
@@ -51,8 +52,9 @@ If File Explorer (Windows) or Finder (macOS) can see the path, so can the scanne
 
 ## Installation
 
+Clone or download this repository, then:
+
 ```bash
-git clone https://github.com/yourname/MOASYS-Vault.git
 cd MOASYS-Vault
 npm install
 ```
@@ -77,21 +79,21 @@ For deep-inspection passes (ffprobe, TMDB validation), see [docs/SCANS.md](docs/
 
 ---
 
-## The three passes
+## The two passes
 
 ```text
-SCAN ─────────► PROBE ─────────► VALIDATE
-fast, offline   slow first run   TMDB API
-                cached after     cached after
+SCAN ─────────────────► VALIDATE
+probe + catalog         TMDB API
+slow first run          cached after
+cached after
 ```
 
-| Pass         | Command                                            | What it surfaces                                               |
-| ------------ | -------------------------------------------------- | -------------------------------------------------------------- |
-| **Scan**     | `npm run <type>` / `npm run scan:all`              | Naming + structure warnings, the clean catalog                 |
-| **Probe**    | `npm run probe:<type>` / `npm run probe:all`       | Video/audio quality data + mismatch warnings, ID3 tag findings |
-| **Validate** | `npm run validate:<type>` / `npm run validate:all` | TMDB title/year/episode-count mismatches (movies + shows only) |
+| Pass         | Command                                            | What it surfaces                                                                                        |
+| ------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Scan**     | `npm run <type>` / `npm run scan:all`              | The clean catalog (with video / audio quality), naming + structure warnings, quality + ID3 tag findings |
+| **Validate** | `npm run validate:<type>` / `npm run validate:all` | TMDB title/year/episode-count mismatches (movies + shows only)                                          |
 
-Each pass writes its own data + warnings files. Running one never touches another's output. Detailed runbook + re-run scenarios in [docs/SCANS.md](docs/SCANS.md).
+The scan pass runs probe (cache-aware) and the folder walk together, producing `<type>.json` (catalog with `versions: [{category, quality}]`), `probe.json` (rich ffprobe data + ID3 tags), and `warnings.json`. Detailed runbook + re-run scenarios in [docs/SCANS.md](docs/SCANS.md).
 
 ---
 
@@ -112,15 +114,14 @@ Each media type writes to its own subfolder inside `output/`:
 
 ```text
 output/<type>/
-├── <type>.json                ← scan: clean catalog
-├── warnings.json              ← scan: naming + structure warnings
-├── probe.json                 ← probe: per-file ffprobe + ID3 data
-├── probe-warnings.json        ← probe: quality/tag warnings
+├── <type>.json                ← scan: clean catalog with versions: [{category, quality}]
+├── probe.json                 ← scan: per-file ffprobe + ID3 data (rich view)
+├── warnings.json              ← scan: all hygiene findings (naming, quality, tags)
 ├── validation.json            ← validate: TMDB resolution (movies + shows only)
 └── validation-warnings.json   ← validate: TMDB confidence warnings
 ```
 
-The probe and validate files appear only after you run the corresponding pass. Full reference in [docs/REFERENCE.md](docs/REFERENCE.md).
+The validate files appear only after you run that pass. Full reference in [docs/REFERENCE.md](docs/REFERENCE.md).
 
 ---
 
@@ -129,18 +130,21 @@ The probe and validate files appear only after you run the corresponding pass. F
 ```text
 MOASYS-Vault/
 ├── src/
-│   ├── scan.ts                       ← scan entry point
+│   ├── scan.ts                       ← merged probe+scan entry point
 │   ├── core/
 │   │   ├── types.ts                  ← shared TypeScript interfaces
+│   │   ├── config.ts                 ← config.json Zod loader
 │   │   ├── scanner.ts                ← shared scanning scaffolding
 │   │   ├── files.ts                  ← shared file/extension helpers
 │   │   ├── gaps.ts                   ← shared numeric gap detection
+│   │   ├── versions.ts               ← versions: dedup + ordered sort
+│   │   ├── runner-shared.ts          ← CLI arg parsing + output writers
 │   │   └── rules/                    ← schema + defaults + loader (one file per type)
 │   ├── media/                        ← per-type scan logic
 │   ├── probe/                        ← per-type ffprobe + ID3 logic
 │   └── validate/                     ← per-type TMDB validation logic
 ├── docs/                             ← deep-dive documentation
-├── rules/                            ← user-editable rule overrides (commit-by-default)
+├── rules/                            ← user-editable rule overrides (defaults committed)
 ├── output/                           ← generated catalog + warnings (gitignored)
 ├── cache/                            ← probe + TMDB caches (gitignored)
 ├── config.json                       ← your library paths
@@ -152,13 +156,9 @@ MOASYS-Vault/
 ## Useful commands
 
 ```bash
-# Scan passes
+# Catalog (probe + scan, slow first run, cached after)
 npm run movies           # one media type
 npm run scan:all         # all four
-
-# Probe passes (ffprobe + ID3, slow first time, cached after)
-npm run probe:movies     # one type
-npm run probe:all        # all four
 
 # Validate passes (TMDB API, needs .secrets.json)
 npm run validate:movies  # one type

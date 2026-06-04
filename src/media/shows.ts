@@ -23,7 +23,10 @@ import { ShowsConfig, ShowRecord, ShowOutput, WarningCollector, MediaModule } fr
 import { hasExtension, isPrimary, formatPrimaryExts, findUnexpectedEntries } from '../core/files'
 import { findNumericGaps } from '../core/gaps'
 import { ShowsRules } from '../core/rules/shows'
-import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
+import { compilePattern, resolveCategories } from '../core/rules/helpers'
+import { finalizeVersions } from '../core/versions'
+import { ProbeData } from '../probe/types'
+import { deriveQuality } from '../probe/helpers'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -96,6 +99,11 @@ function seasonSortKey(label: string): [number, number, string] {
   return [1, 0, label.toLowerCase()]
 }
 
+/** Normalize a path to forward slashes — matches the probe-side cache key. */
+function toRel(p: string): string {
+  return p.split(path.sep).join('/')
+}
+
 // ─────────────────────────────────────────────
 // Factory
 // ─────────────────────────────────────────────
@@ -110,18 +118,19 @@ export function createShowsModule(
   // Pre-lowercase the ignored names once rather than on every season check.
   const ignoredNamesLower = rules.ignored_season_names.map(n => n.toLowerCase())
 
-  const effectiveMediaFolders = resolveMediaFolders(rules.media_folders)
-  const qualityOrder = effectiveMediaFolders.map(mf => mf.tag)
+  const effectiveCategories = resolveCategories(rules.categories)
+  const categoryOrder = effectiveCategories.map(c => c.name)
 
   return {
-    getMediaFolders: () => effectiveMediaFolders,
+    getCategories: () => effectiveCategories,
 
-    scanMediaFolder(
+    scanCategory(
       folderPath: string,
       folderName: string,
-      tag: string,
+      category: string,
       config: ShowsConfig,
-      warnings: WarningCollector
+      warnings: WarningCollector,
+      probeByPath: Map<string, ProbeData>
     ): Map<string, ShowRecord> {
       const records = new Map<string, ShowRecord>()
 
@@ -392,13 +401,24 @@ export function createShowsModule(
             show.seasons.set(seasonKey, {
               season_label: seasonLabel,
               episode_count: 0,
-              qualities: new Set(),
+              versions: [],
             })
           }
 
           const season = show.seasons.get(seasonKey)!
           season.episode_count += seasonEpCount
-          season.qualities.add(tag)
+          // Push one version per probed episode file. dedupVersions collapses
+          // identical (category, quality) entries at serialize time, so a
+          // uniform-quality season produces one version while a mixed-quality
+          // one produces multiple — accurate to what's on disk.
+          for (const f of primaryFiles) {
+            const probePath = toRel(path.join(seasonRel, f.name))
+            const probe = probeByPath.get(probePath)
+            const quality = probe?.video
+              ? deriveQuality(probe.video.width, probe.video.height, rules.quality_thresholds)
+              : null
+            season.versions.push({ category, quality })
+          }
         }
       }
 
@@ -417,7 +437,7 @@ export function createShowsModule(
             existingShow.seasons.set(seasonKey, newSeason)
           } else {
             const existingSeason = existingShow.seasons.get(seasonKey)!
-            for (const q of newSeason.qualities) existingSeason.qualities.add(q)
+            existingSeason.versions.push(...newSeason.versions)
             existingSeason.episode_count = Math.max(
               existingSeason.episode_count,
               newSeason.episode_count
@@ -428,8 +448,6 @@ export function createShowsModule(
     },
 
     serialize(records: Map<string, ShowRecord>): ShowOutput[] {
-      const orderQualities = (qs: Set<string>) => qualityOrder.filter(q => qs.has(q))
-
       return [...records.values()]
         .sort((a, b) => {
           const t = a.title.toLowerCase().localeCompare(b.title.toLowerCase())
@@ -449,7 +467,7 @@ export function createShowsModule(
             .map(s => ({
               season: s.season_label,
               episode_count: s.episode_count,
-              qualities: orderQualities(s.qualities),
+              versions: finalizeVersions(s.versions, categoryOrder),
             })),
         }))
     },

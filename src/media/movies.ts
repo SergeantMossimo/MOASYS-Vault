@@ -27,7 +27,10 @@ import {
 } from '../core/types'
 import { hasExtension, isPrimary, formatPrimaryExts, findUnexpectedEntries } from '../core/files'
 import { MoviesRules } from '../core/rules/movies'
-import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
+import { compilePattern, resolveCategories } from '../core/rules/helpers'
+import { finalizeVersions, distinctCategories } from '../core/versions'
+import { ProbeData } from '../probe/types'
+import { deriveQuality } from '../probe/helpers'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -83,15 +86,22 @@ function makeKey(title: string, year: number, edition: string | null): string {
   return `${title.toLowerCase()}|${year}|${(edition ?? '').toLowerCase()}`
 }
 
-/** Return true if the qualities set matches one of the acceptable combos */
-function isAcceptableCombo(qualities: Set<string>, combos: readonly string[][]): boolean {
-  return combos.some(combo => combo.length === qualities.size && combo.every(q => qualities.has(q)))
+/** Return true if the category set matches one of the acceptable combos */
+function isAcceptableCombo(categories: Set<string>, combos: readonly string[][]): boolean {
+  return combos.some(
+    combo => combo.length === categories.size && combo.every(q => categories.has(q))
+  )
 }
 
 /** Build the Plex-style movie name used as the warning path */
 function movieDisplayName(record: MovieRecord): string {
   const base = `${record.title} (${record.year})`
   return record.edition ? `${base} {edition-${record.edition}}` : base
+}
+
+/** Normalize a path to forward slashes — matches the probe-side cache key. */
+function toRel(p: string): string {
+  return p.split(path.sep).join('/')
 }
 
 // ─────────────────────────────────────────────
@@ -119,25 +129,26 @@ export function createMoviesModule(
   const yearMin = rules.year_range.min
   const yearMax = rules.year_range.max as number
 
-  // Resolve the effective folder list once: user's configured media_folders,
-  // or the synthetic single-entry default pointing at root_path with tag
+  // Resolve the effective category list once: user's configured categories,
+  // or the synthetic single-entry default pointing at root_path with label
   // "default" when nothing is configured.
-  const effectiveMediaFolders = resolveMediaFolders(rules.media_folders)
-  const qualityOrder = effectiveMediaFolders.map(mf => mf.tag)
+  const effectiveCategories = resolveCategories(rules.categories)
+  const categoryOrder = effectiveCategories.map(c => c.name)
 
   return {
-    getMediaFolders: () => effectiveMediaFolders,
+    getCategories: () => effectiveCategories,
 
     /**
-     * Walk one media folder (e.g. UHD/) and return a Map of movie records.
-     * Called once per media_folder entry by core/scanner.ts.
+     * Walk one category folder (e.g. UHD/) and return a Map of movie records.
+     * Called once per category entry by core/scanner.ts.
      */
-    scanMediaFolder(
+    scanCategory(
       folderPath: string,
       folderName: string,
-      tag: string,
+      category: string,
       config: MoviesConfig,
-      warnings: WarningCollector
+      warnings: WarningCollector,
+      probeByPath: Map<string, ProbeData>
     ): Map<string, MovieRecord> {
       const records = new Map<string, MovieRecord>()
 
@@ -331,10 +342,18 @@ export function createMoviesModule(
               title: fileTitle,
               year: fileYear,
               edition,
-              qualities: new Set(),
+              versions: [],
             })
           }
-          records.get(key)!.qualities.add(tag)
+          // Look up the file's probe data and derive a quality bucket from
+          // its dimensions. Quality stays null when the file has no probe
+          // entry (e.g. it failed to probe) or when no bucket's range fits.
+          const probePath = toRel(path.join(folderName, entry.name, f.name))
+          const probe = probeByPath.get(probePath)
+          const quality = probe?.video
+            ? deriveQuality(probe.video.width, probe.video.height, rules.quality_thresholds)
+            : null
+          records.get(key)!.versions.push({ category, quality })
         }
       }
 
@@ -344,7 +363,7 @@ export function createMoviesModule(
     merge(existing: Map<string, MovieRecord>, incoming: Map<string, MovieRecord>): void {
       for (const [key, record] of incoming) {
         if (existing.has(key)) {
-          for (const q of record.qualities) existing.get(key)!.qualities.add(q)
+          existing.get(key)!.versions.push(...record.versions)
         } else {
           existing.set(key, record)
         }
@@ -352,14 +371,12 @@ export function createMoviesModule(
     },
 
     serialize(records: Map<string, MovieRecord>): MovieOutput[] {
-      const orderQualities = (qs: Set<string>) => qualityOrder.filter(q => qs.has(q))
-
       return [...records.values()]
         .map(r => ({
           title: r.title,
           year: r.year,
           edition: r.edition,
-          qualities: orderQualities(r.qualities),
+          versions: finalizeVersions(r.versions, categoryOrder),
         }))
         .sort((a, b) => {
           const t = a.title.toLowerCase().localeCompare(b.title.toLowerCase())
@@ -371,19 +388,20 @@ export function createMoviesModule(
 
     /**
      * Post-merge check: emit a warning for each movie that exists in more than
-     * one quality folder, unless its quality set is in acceptable_quality_combos.
+     * one category, unless its category set is in acceptable_quality_combos.
      */
     postScan(records: Map<string, MovieRecord>, warnings: WarningCollector): void {
       if (!rules.checks.warn_multi_quality) return
 
       for (const record of records.values()) {
-        if (record.qualities.size <= 1) continue
-        if (isAcceptableCombo(record.qualities, rules.acceptable_quality_combos)) continue
+        const cats = new Set(distinctCategories(record.versions))
+        if (cats.size <= 1) continue
+        if (isAcceptableCombo(cats, rules.acceptable_quality_combos)) continue
 
-        const ordered = qualityOrder.filter(q => record.qualities.has(q))
+        const ordered = categoryOrder.filter(c => cats.has(c))
         warnings.add(
           movieDisplayName(record),
-          `Movie exists in multiple quality folders: ${ordered.join(', ')}`
+          `Movie exists in multiple categories: ${ordered.join(', ')}`
         )
       }
     },

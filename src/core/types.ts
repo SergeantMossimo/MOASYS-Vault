@@ -11,17 +11,17 @@
 // ─────────────────────────────────────────────
 
 /**
- * One entry in the media_folders rules array — maps a folder name on disk
- * to a tag used in output. Re-exported from core/rules/helpers.ts so existing
- * imports from core/types keep working.
+ * One entry in the categories rules array — a subfolder under root_path
+ * that the scanner walks. Re-exported from core/rules/helpers.ts.
  */
-import type { MediaFolder } from './rules/helpers'
-export type { MediaFolder }
+import type { Category, ResolvedCategory } from './rules/helpers'
+import type { ProbeData } from '../probe/types'
+export type { Category, ResolvedCategory }
 
 /**
  * Shared fields present in every media type config section.
  * config.json now only carries the per-machine root_path. Everything else
- * (extensions, patterns, conventions, the media_folders list) lives in the
+ * (extensions, patterns, conventions, the categories list) lives in the
  * rules layer (src/core/rules/<type>.ts and rules/<type>.yaml).
  */
 export interface BaseMediaConfig {
@@ -66,6 +66,26 @@ export interface WarningsOutput {
 }
 
 // ─────────────────────────────────────────────
+// Version (unified per-copy descriptor)
+// ─────────────────────────────────────────────
+
+/**
+ * One physical copy of a media item — where it lives (category) and what
+ * quality it is. The same record can have multiple versions when it lives
+ * in more than one category, or when its tracks/episodes have multiple
+ * codecs/resolutions.
+ *
+ * For movies/shows, `quality` is derived from probe data (long-edge px
+ * mapped against quality_thresholds) and is null until the probe pass has
+ * run. For music/audiobooks, `quality` is the file extension uppercased
+ * (FLAC, MP3, AAC, etc.) and is always populated during scan.
+ */
+export interface Version {
+  category: string
+  quality: string | null
+}
+
+// ─────────────────────────────────────────────
 // Movie types
 // ─────────────────────────────────────────────
 
@@ -74,7 +94,7 @@ export interface MovieRecord {
   title: string
   year: number
   edition: string | null // null = no edition tag, string = edition name
-  qualities: Set<string> // e.g. Set { "UHD", "HD" }
+  versions: Version[] // may contain duplicates; deduped on serialize
 }
 
 /** One entry in movies.json */
@@ -82,7 +102,7 @@ export interface MovieOutput {
   title: string
   year: number
   edition: string | null
-  qualities: string[] // Sorted list e.g. ["UHD", "HD"]
+  versions: Version[] // sorted by category order, then by quality
 }
 
 // ─────────────────────────────────────────────
@@ -93,7 +113,7 @@ export interface MovieOutput {
 export interface SeasonRecord {
   season_label: string // "1", "2", "Specials" etc.
   episode_count: number
-  qualities: Set<string>
+  versions: Version[]
 }
 
 /** Internal record for a single show during scanning */
@@ -107,7 +127,7 @@ export interface ShowRecord {
 export interface SeasonOutput {
   season: string // "1", "2", "Specials"
   episode_count: number
-  qualities: string[]
+  versions: Version[]
 }
 
 /** One entry in shows.json */
@@ -125,8 +145,7 @@ export interface ShowOutput {
 export interface AlbumRecord {
   album: string
   track_count: number
-  qualities: Set<string> // e.g. Set { "FLAC", "MP3" }
-  media_type: Set<string> // e.g. Set { "Music" }
+  versions: Version[] // (category, codec) pairs; deduped on serialize
 }
 
 /** Internal record for a single artist during scanning */
@@ -139,8 +158,7 @@ export interface ArtistRecord {
 export interface AlbumOutput {
   album: string
   track_count: number
-  qualities: string[]
-  media_type: string[]
+  versions: Version[]
 }
 
 /** One entry in music.json */
@@ -158,7 +176,7 @@ export interface BookRecord {
   title: string
   authors: string[] // e.g. ["Terry Pratchett", "Neil Gaiman"]
   chapter_count: number
-  media_type: Set<string>
+  versions: Version[] // (category, codec) pairs; deduped on serialize
 }
 
 /** One entry in audiobooks.json */
@@ -166,7 +184,7 @@ export interface BookOutput {
   title: string
   authors: string[]
   chapter_count: number
-  media_type: string[]
+  versions: Version[]
 }
 
 // ─────────────────────────────────────────────
@@ -180,20 +198,28 @@ export interface BookOutput {
  */
 export interface MediaModule<TRecord, TOutput, TConfig extends BaseMediaConfig> {
   /**
-   * Return the effective media_folders for this module. The factory resolves
-   * this from rules.media_folders, synthesizing a single-entry list pointing
-   * at root_path (tag: "default") when the user hasn't configured any.
-   * The core scanner iterates whatever this returns.
+   * Return the effective categories for this module. The factory resolves
+   * this from rules.categories, synthesizing a single-entry list pointing
+   * at root_path (name: "default", folderName: "") when the user hasn't
+   * configured any. The core scanner iterates whatever this returns.
    */
-  getMediaFolders(): MediaFolder[]
+  getCategories(): ResolvedCategory[]
 
-  /** Walk one media folder and return a map of records found */
-  scanMediaFolder(
+  /**
+   * Walk one category folder and return a map of records found.
+   *
+   * `probeByPath` provides ffprobe results keyed by relative path (forward
+   * slashes) so video modules can derive a `quality` for each version from
+   * the file's dimensions. Audio modules generally ignore it and key off
+   * the file extension instead.
+   */
+  scanCategory(
     folderPath: string,
     folderName: string,
-    tag: string,
+    category: string,
     config: TConfig,
-    warnings: WarningCollector
+    warnings: WarningCollector,
+    probeByPath: Map<string, ProbeData>
   ): Map<string, TRecord>
 
   /** Merge records from one media folder into the accumulated results */

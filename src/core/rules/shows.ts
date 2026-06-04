@@ -10,7 +10,7 @@
 
 import { z } from 'zod'
 
-import { PatternSchema, MediaFolderSchema } from './helpers'
+import { PatternSchema, CategorySchema } from './helpers'
 
 export const ShowsRulesSchema = z.object({
   /**
@@ -28,8 +28,8 @@ export const ShowsRulesSchema = z.object({
     file: PatternSchema,
   }),
 
-  /** Subfolders under root_path to walk. Empty = walk root_path directly with "default" tag. */
-  media_folders: z.array(MediaFolderSchema),
+  /** Subfolders under root_path to walk. Empty = walk root_path directly with "default" label. */
+  categories: z.array(CategorySchema),
 
   /** Expected primary file format(s) for episodes. */
   primary_extension: z.array(z.string()).min(1),
@@ -58,7 +58,6 @@ export const ShowsRulesSchema = z.object({
   quality_thresholds: z.array(
     z.object({
       name: z.string(),
-      tags: z.array(z.string()).min(1),
       min_width: z.number().int().positive().optional(),
       max_width: z.number().int().positive().optional(),
     })
@@ -129,7 +128,7 @@ export const defaultShowsRules: ShowsRules = ShowsRulesSchema.parse({
       flags: 'i',
     },
   },
-  media_folders: [],
+  categories: [],
   primary_extension: ['.mp4'],
   video_extensions: ['.mp4', '.mkv', '.avi', '.m4v', '.mov', '.wmv', '.ts', '.m2ts'],
   ignored_season_names: ['Specials'],

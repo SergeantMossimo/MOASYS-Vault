@@ -9,7 +9,7 @@
 
 import { z } from 'zod'
 
-import { PatternSchema, MediaFolderSchema } from './helpers'
+import { PatternSchema, CategorySchema } from './helpers'
 
 export const MusicRulesSchema = z.object({
   /**
@@ -34,8 +34,8 @@ export const MusicRulesSchema = z.object({
     multi_disc: PatternSchema,
   }),
 
-  /** Subfolders under root_path to walk. Empty = walk root_path directly with "default" tag. */
-  media_folders: z.array(MediaFolderSchema),
+  /** Subfolders under root_path to walk. Empty = walk root_path directly with "default" label. */
+  categories: z.array(CategorySchema),
 
   /**
    * Expected primary file format(s) for music. Lossless-only libraries
@@ -86,8 +86,7 @@ export const MusicRulesSchema = z.object({
     /**
      * Album has tracks with more than one distinct derived audio quality
      * (e.g. some tracks FLAC 16/44.1 and others MP3 320). Usually means a
-     * mid-album re-encode or accidental mix. Surfaced from the probe pass,
-     * so it lives in probe-warnings.json rather than warnings.json.
+     * mid-album re-encode or accidental mix. Surfaced from the probe pass.
      */
     warn_quality_inconsistent: z.boolean(),
     /**
@@ -130,7 +129,7 @@ export const defaultMusicRules: MusicRules = MusicRulesSchema.parse({
     single_disc: '^(?<track>\\d{2})\\s-\\s(?<name>.+)$',
     multi_disc: '^(?<disc>\\d+)(?<track>\\d{2})\\s-\\s(?<name>.+)$',
   },
-  media_folders: [],
+  categories: [],
   primary_extension: ['.flac', '.mp3', '.m4a'],
   audio_extensions: ['.flac', '.mp3', '.aac', '.m4a', '.wav', '.ogg', '.wma'],
   // Music sidecars — NFO metadata, cover art, lyrics, cuesheets, PDF liner notes.
