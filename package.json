@@ -11,11 +11,14 @@
     "validate:movies": "tsx src/validate/runner.ts --type movies",
     "validate:shows": "tsx src/validate/runner.ts --type shows",
     "validate:all": "tsx src/validate/runner.ts --all",
-    "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
     "lint:md": "markdownlint-cli2 **/*.md #node_modules",
-    "prettier:fix": "prettier --write \"src/**/*.ts\" \"**/*.md\" \"!node_modules\"",
-    "prettier": "prettier --check \"src/**/*.ts\" \"**/*.md\" \"!node_modules\"",
+    "prettier:fix": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"**/*.md\" \"!node_modules\"",
+    "prettier": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"**/*.md\" \"!node_modules\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -23,11 +26,13 @@
     "@types/node": "^20.11.5",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
+    "@vitest/coverage-v8": "^4.1.8",
     "eslint": "^8.57.0",
     "markdownlint-cli2": "^0.22.1",
     "prettier": "^3.2.5",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.8"
   },
   "dependencies": {
     "ffprobe-static": "^3.1.0",

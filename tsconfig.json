@@ -61,10 +61,6 @@
     // for deployment.
     "outDir": "./dist",
 
-    // Tells the compiler where your source files live.
-    // Must match the "include" pattern below.
-    "rootDir": "./src",
-
     // ── Performance ──────────────────────────────────────────────────────
     // Skips type checking of .d.ts files in node_modules.
     // This significantly speeds up compilation and avoids errors from
@@ -72,8 +68,9 @@
     "skipLibCheck": true
   },
 
-  // Only compile files inside src/
-  "include": ["src/**/*.ts"],
+  // Compile both source and test files. `tsc --noEmit` (`npm run typecheck`)
+  // and the editor's language server both use this list.
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"],
 
   // Never compile these — node_modules would be enormous, dist is output not source
   "exclude": ["node_modules", "dist"]

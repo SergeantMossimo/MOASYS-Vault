@@ -1,0 +1,357 @@
+import { describe, it, expect, vi } from 'vitest'
+
+import { createShowsModule } from '../../../src/media/shows'
+import { defaultShowsRules, ShowsRules } from '../../../src/core/rules/shows'
+import { scan } from '../../../src/core/scanner'
+import { WarningCollector } from '../../../src/core/types'
+import {
+  buildLibrary,
+  cleanupLibrary,
+  fakeProbe,
+  probeMap,
+  type DirSpec,
+} from '../../fixtures/library'
+
+function runShowsScan(opts: {
+  spec: DirSpec
+  rules?: Partial<ShowsRules>
+  probes?: Record<string, ReturnType<typeof fakeProbe>>
+}) {
+  const rules: ShowsRules = {
+    ...defaultShowsRules,
+    categories: [{ name: 'UHD' }, { name: 'HD' }, { name: 'SD' }],
+    quality_thresholds: [
+      { name: 'UHD', min_width: 2000 },
+      { name: 'HD', min_width: 1000, max_width: 2000 },
+      { name: 'SD', max_width: 1000 },
+    ],
+    ...opts.rules,
+  }
+  const root = buildLibrary(opts.spec, 'moasys-shows-')
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  const module = createShowsModule(rules)
+  const warnings = new WarningCollector()
+  const probes = probeMap(opts.probes ?? {})
+
+  try {
+    const records = scan({ root_path: root }, module, warnings, probes)
+    const output = module.serialize(records)
+    return { output, warnings: warnings.all() }
+  } finally {
+    logSpy.mockRestore()
+    cleanupLibrary(root)
+  }
+}
+
+describe('shows module — happy paths', () => {
+  it('catalogs a show with a numbered season', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            'Season 01': {
+              'Show (2020) - S01E01 - Pilot.mp4': '',
+              'Show (2020) - S01E02 - Two.mp4': '',
+            },
+          },
+        },
+      },
+      probes: {
+        'HD/Show (2020)/Season 01/Show (2020) - S01E01 - Pilot.mp4': fakeProbe({
+          video: { codec: 'h264', width: 1920, height: 1080, frame_rate: 24 },
+        }),
+        'HD/Show (2020)/Season 01/Show (2020) - S01E02 - Two.mp4': fakeProbe({
+          video: { codec: 'h264', width: 1920, height: 1080, frame_rate: 24 },
+        }),
+      },
+    })
+    expect(result.output).toEqual([
+      {
+        title: 'Show',
+        year: 2020,
+        seasons: [
+          {
+            season: '1',
+            episode_count: 2,
+            versions: [{ category: 'HD', quality: 'HD' }],
+          },
+        ],
+      },
+    ])
+  })
+
+  it('preserves the named-season label from ignored_season_names', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            Specials: {
+              'Show (2020) - S00E01 - Pilot.mp4': '',
+            },
+          },
+        },
+      },
+    })
+    expect(result.output[0]?.seasons[0]?.season).toBe('Specials')
+  })
+
+  it('counts multi-episode files as multiple episodes', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            'Season 01': {
+              'Show (2020) - S01E01-E02 - Pilot.mp4': '',
+            },
+          },
+        },
+      },
+    })
+    expect(result.output[0]?.seasons[0]?.episode_count).toBe(2)
+  })
+
+  it('emits one version per category for a season in multiple categories', () => {
+    const result = runShowsScan({
+      spec: {
+        UHD: {
+          'Show (2020)': {
+            'Season 01': { 'Show (2020) - S01E01.mp4': '' },
+          },
+        },
+        HD: {
+          'Show (2020)': {
+            'Season 01': { 'Show (2020) - S01E01.mp4': '' },
+          },
+        },
+      },
+      probes: {
+        'UHD/Show (2020)/Season 01/Show (2020) - S01E01.mp4': fakeProbe({
+          video: { codec: 'hevc', width: 3840, height: 2160, frame_rate: 24 },
+        }),
+        'HD/Show (2020)/Season 01/Show (2020) - S01E01.mp4': fakeProbe({
+          video: { codec: 'h264', width: 1920, height: 1080, frame_rate: 24 },
+        }),
+      },
+    })
+    expect(result.output[0]?.seasons[0]?.versions).toEqual([
+      { category: 'UHD', quality: 'UHD' },
+      { category: 'HD', quality: 'HD' },
+    ])
+  })
+
+  it('surfaces multiple versions per category for a mixed-quality season', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            'Season 01': {
+              'Show (2020) - S01E01.mp4': '', // HD
+              'Show (2020) - S01E02.mp4': '', // SD (probe dimensions)
+            },
+          },
+        },
+      },
+      probes: {
+        'HD/Show (2020)/Season 01/Show (2020) - S01E01.mp4': fakeProbe({
+          video: { codec: 'h264', width: 1920, height: 1080, frame_rate: 24 },
+        }),
+        'HD/Show (2020)/Season 01/Show (2020) - S01E02.mp4': fakeProbe({
+          video: { codec: 'h264', width: 720, height: 480, frame_rate: 24 },
+        }),
+      },
+    })
+    const versions = result.output[0]?.seasons[0]?.versions ?? []
+    expect(versions).toContainEqual({ category: 'HD', quality: 'HD' })
+    expect(versions).toContainEqual({ category: 'HD', quality: 'SD' })
+  })
+
+  it('sorts seasons numerically with named seasons after numeric', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            Specials: { 'Show (2020) - S00E01.mp4': '' },
+            'Season 02': { 'Show (2020) - S02E01.mp4': '' },
+            'Season 01': { 'Show (2020) - S01E01.mp4': '' },
+          },
+        },
+      },
+    })
+    expect(result.output[0]?.seasons.map(s => s.season)).toEqual(['1', '2', 'Specials'])
+  })
+})
+
+describe('shows module — warnings', () => {
+  it('warn_bad_show_folder: show folder does not match the pattern', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: { ShowNoYear: { 'Season 01': { 'ShowNoYear - S01E01.mp4': '' } } },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Show folder name does not match/))).toBe(true)
+  })
+
+  it('warn_bad_season_folder: season folder is not "Season XX"', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            S1: { 'Show (2020) - S01E01.mp4': '' },
+          },
+        },
+      },
+    })
+    expect(
+      result.warnings.some(w => w.issue.match(/Season folder.*does not match expected format/))
+    ).toBe(true)
+  })
+
+  it('warn_bad_file_name: episode file does not match the pattern', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            'Season 01': { 'random.mp4': '' },
+          },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/File name does not match Plex naming/))).toBe(
+      true
+    )
+  })
+
+  it('warn_show_year_mismatch: episode file references a different show year', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            'Season 01': { 'Show (2019) - S01E01.mp4': '' },
+          },
+        },
+      },
+    })
+    expect(
+      result.warnings.some(w => w.issue.match(/File show\/year .* does not match show folder/))
+    ).toBe(true)
+  })
+
+  it('warn_season_mismatch: file season number disagrees with season folder', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            'Season 01': { 'Show (2020) - S02E01.mp4': '' },
+          },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/does not match season folder/))).toBe(true)
+  })
+
+  it('warn_episode_gaps: missing episode in a season', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            'Season 01': {
+              'Show (2020) - S01E01.mp4': '',
+              'Show (2020) - S01E03.mp4': '', // E02 missing
+            },
+          },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Potential missing episodes/))).toBe(true)
+  })
+
+  it('warn_no_videos: season folder is empty', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': { 'Season 01': { 'poster.jpg': '' } },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/No recognized video files/))).toBe(true)
+  })
+
+  it('warn_non_primary: a .mkv file when primary is .mp4', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            'Season 01': { 'Show (2020) - S01E01.mkv': '' },
+          },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Non-.MP4/))).toBe(true)
+  })
+
+  it('warn_loose_files: video files at category root', () => {
+    const result = runShowsScan({
+      spec: { HD: { 'stray.mp4': '' } },
+    })
+    expect(result.warnings.some(w => w.issue.match(/loose video/i))).toBe(true)
+  })
+
+  it('warn_loose_files: video files directly inside show folder', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: { 'Show (2020)': { 'Show (2020) - S01E01.mp4': '' } },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/loose video/i))).toBe(true)
+  })
+
+  it('warn_extra_subfolders: nested folder inside a season folder', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            'Season 01': {
+              'Show (2020) - S01E01.mp4': '',
+              Extras: { 'bonus.mp4': '' },
+            },
+          },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Unexpected subfolder/))).toBe(true)
+  })
+
+  it('warn_unexpected_entries: stray .txt at category root', () => {
+    const result = runShowsScan({
+      spec: { HD: { 'README.txt': '' } },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Unexpected file/))).toBe(true)
+  })
+
+  it('toggles silence warnings when set to false', () => {
+    const result = runShowsScan({
+      spec: { HD: { 'random.txt': '' } },
+      rules: {
+        checks: {
+          ...defaultShowsRules.checks,
+          warn_unexpected_entries: false,
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Unexpected file/))).toBe(false)
+  })
+})
+
+describe('shows module — categories integration', () => {
+  it('uses synthetic "default" category when none configured', () => {
+    const result = runShowsScan({
+      spec: {
+        'Show (2020)': {
+          'Season 01': { 'Show (2020) - S01E01.mp4': '' },
+        },
+      },
+      rules: { categories: [] },
+    })
+    expect(result.output[0]?.seasons[0]?.versions[0]?.category).toBe('default')
+  })
+})
