@@ -1,0 +1,156 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+
+import { ProbeCache } from '../../../src/probe/cache'
+import { CACHE_VERSION, type ProbeData } from '../../../src/probe/types'
+
+const sampleData = (overrides: Partial<ProbeData> = {}): ProbeData => ({
+  size_bytes: 1000,
+  duration_seconds: 60,
+  bitrate: 320_000,
+  video: { codec: 'h264', width: 1920, height: 1080, frame_rate: 24 },
+  audio: null,
+  tags: null,
+  ...overrides,
+})
+
+describe('ProbeCache', () => {
+  let tmpDir: string
+  let logSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moasys-cache-'))
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+    logSpy.mockRestore()
+  })
+
+  it('starts empty when the cache file does not exist', () => {
+    const cache = new ProbeCache(path.join(tmpDir, 'cache.json'))
+    expect(cache.size()).toBe(0)
+  })
+
+  it('round-trips data through set + get on the same instance', () => {
+    const cache = new ProbeCache(path.join(tmpDir, 'cache.json'))
+    cache.set('UHD/Movie/Movie.mp4', 12345, 5000, sampleData())
+    const result = cache.get('UHD/Movie/Movie.mp4', 12345, 5000)
+    expect(result).toEqual(sampleData())
+  })
+
+  it('returns null when the path is unknown', () => {
+    const cache = new ProbeCache(path.join(tmpDir, 'cache.json'))
+    expect(cache.get('Unknown.mp4', 1, 1)).toBeNull()
+  })
+
+  it('returns null when mtime differs (file modified)', () => {
+    const cache = new ProbeCache(path.join(tmpDir, 'cache.json'))
+    cache.set('a.mp4', 100, 5000, sampleData())
+    expect(cache.get('a.mp4', 200, 5000)).toBeNull()
+  })
+
+  it('returns null when size differs (file rewritten)', () => {
+    const cache = new ProbeCache(path.join(tmpDir, 'cache.json'))
+    cache.set('a.mp4', 100, 5000, sampleData())
+    expect(cache.get('a.mp4', 100, 6000)).toBeNull()
+  })
+
+  it('overwrites existing entries on set', () => {
+    const cache = new ProbeCache(path.join(tmpDir, 'cache.json'))
+    cache.set('a.mp4', 100, 5000, sampleData())
+    cache.set('a.mp4', 100, 5000, sampleData({ size_bytes: 9999 }))
+    expect(cache.get('a.mp4', 100, 5000)?.size_bytes).toBe(9999)
+  })
+
+  it('normalizes Windows path separators to forward slashes in cache keys', () => {
+    const cache = new ProbeCache(path.join(tmpDir, 'cache.json'))
+    cache.set('UHD\\Movie\\Movie.mp4', 100, 5000, sampleData())
+    // Lookup with either separator finds the same entry.
+    expect(cache.get('UHD/Movie/Movie.mp4', 100, 5000)).not.toBeNull()
+  })
+
+  it('persists to disk via save() and loads back via constructor', () => {
+    const cachePath = path.join(tmpDir, 'cache.json')
+
+    const writer = new ProbeCache(cachePath)
+    writer.set('UHD/Movie/Movie.mp4', 12345, 5000, sampleData())
+    writer.save()
+
+    const reader = new ProbeCache(cachePath)
+    expect(reader.size()).toBe(1)
+    expect(reader.get('UHD/Movie/Movie.mp4', 12345, 5000)).toEqual(sampleData())
+  })
+
+  it('discards a cache file with a mismatched version', () => {
+    const cachePath = path.join(tmpDir, 'cache.json')
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({
+        version: CACHE_VERSION + 99,
+        entries: [{ path: 'a.mp4', mtime: 1, size: 1, data: sampleData() }],
+      }),
+      'utf-8'
+    )
+
+    const cache = new ProbeCache(cachePath)
+    expect(cache.size()).toBe(0)
+    expect(logSpy).toHaveBeenCalledWith(expect.stringMatching(/Cache version mismatch/))
+  })
+
+  it('discards a corrupt JSON cache file', () => {
+    const cachePath = path.join(tmpDir, 'cache.json')
+    fs.writeFileSync(cachePath, '{ not valid json', 'utf-8')
+
+    const cache = new ProbeCache(cachePath)
+    expect(cache.size()).toBe(0)
+    expect(logSpy).toHaveBeenCalledWith(expect.stringMatching(/Corrupt cache file/))
+  })
+
+  it('discards a cache file with an unexpected shape', () => {
+    const cachePath = path.join(tmpDir, 'cache.json')
+    fs.writeFileSync(cachePath, JSON.stringify({ not: 'a cache' }), 'utf-8')
+
+    const cache = new ProbeCache(cachePath)
+    expect(cache.size()).toBe(0)
+    expect(logSpy).toHaveBeenCalledWith(expect.stringMatching(/unexpected shape/))
+  })
+
+  it('writes the cache file with version field on save', () => {
+    const cachePath = path.join(tmpDir, 'cache.json')
+    const cache = new ProbeCache(cachePath)
+    cache.set('a.mp4', 1, 1, sampleData())
+    cache.save()
+
+    const written = JSON.parse(fs.readFileSync(cachePath, 'utf-8'))
+    expect(written.version).toBe(CACHE_VERSION)
+    expect(written.entries).toHaveLength(1)
+  })
+
+  it('sorts entries alphabetically on save for stable diffs', () => {
+    const cachePath = path.join(tmpDir, 'cache.json')
+    const cache = new ProbeCache(cachePath)
+    cache.set('c.mp4', 1, 1, sampleData())
+    cache.set('a.mp4', 1, 1, sampleData())
+    cache.set('b.mp4', 1, 1, sampleData())
+    cache.save()
+
+    const written = JSON.parse(fs.readFileSync(cachePath, 'utf-8'))
+    expect(written.entries.map((e: { path: string }) => e.path)).toEqual([
+      'a.mp4',
+      'b.mp4',
+      'c.mp4',
+    ])
+  })
+
+  it('creates parent directories on save if they do not exist', () => {
+    const cachePath = path.join(tmpDir, 'nested', 'cache.json')
+    const cache = new ProbeCache(cachePath)
+    cache.set('a.mp4', 1, 1, sampleData())
+    cache.save()
+    expect(fs.existsSync(cachePath)).toBe(true)
+  })
+})

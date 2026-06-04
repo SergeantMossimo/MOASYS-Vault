@@ -1,0 +1,316 @@
+import { describe, it, expect, vi } from 'vitest'
+
+import { createMoviesModule } from '../../../src/media/movies'
+import { defaultMoviesRules, MoviesRules } from '../../../src/core/rules/movies'
+import { scan } from '../../../src/core/scanner'
+import { WarningCollector } from '../../../src/core/types'
+import {
+  buildLibrary,
+  cleanupLibrary,
+  fakeProbe,
+  probeMap,
+  type DirSpec,
+} from '../../fixtures/library'
+
+/**
+ * Helper: build a rules object with categories + quality_thresholds wired up,
+ * then run the movies module against a fixture library and collect the result.
+ */
+function runMoviesScan(opts: {
+  spec: DirSpec
+  rules?: Partial<MoviesRules>
+  probes?: Record<string, ReturnType<typeof fakeProbe>>
+}) {
+  const rules: MoviesRules = {
+    ...defaultMoviesRules,
+    categories: [{ name: 'UHD' }, { name: 'HD' }, { name: 'SD' }],
+    quality_thresholds: [
+      { name: 'UHD', min_width: 2000 },
+      { name: 'HD', min_width: 1000, max_width: 2000 },
+      { name: 'SD', max_width: 1000 },
+    ],
+    ...opts.rules,
+  }
+  const root = buildLibrary(opts.spec, 'moasys-movies-')
+  // Silence scan()'s [SKIP] logs for missing category folders.
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  const module = createMoviesModule(rules)
+  const warnings = new WarningCollector()
+  const probes = probeMap(opts.probes ?? {})
+
+  try {
+    const records = scan({ root_path: root }, module, warnings, probes)
+    const output = module.serialize(records)
+    return { output, warnings: warnings.all() }
+  } finally {
+    logSpy.mockRestore()
+    cleanupLibrary(root)
+  }
+}
+
+describe('movies module — happy paths', () => {
+  it('catalogs a movie in a single category with derived quality', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'The Crow (1994)': { 'The Crow (1994).mp4': '' } },
+      },
+      probes: {
+        'UHD/The Crow (1994)/The Crow (1994).mp4': fakeProbe({
+          video: { codec: 'hevc', width: 3840, height: 2160, frame_rate: 24 },
+        }),
+      },
+    })
+    expect(result.output).toEqual([
+      {
+        title: 'The Crow',
+        year: 1994,
+        edition: null,
+        versions: [{ category: 'UHD', quality: 'UHD' }],
+      },
+    ])
+  })
+
+  it('returns quality null when no probe data is available', () => {
+    const result = runMoviesScan({
+      spec: { HD: { 'Inception (2010)': { 'Inception (2010).mp4': '' } } },
+    })
+    expect(result.output[0]?.versions[0]).toEqual({ category: 'HD', quality: null })
+  })
+
+  it('emits one version per category for a movie that exists in multiple categories', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'The Crow (1994)': { 'The Crow (1994).mp4': '' } },
+        HD: { 'The Crow (1994)': { 'The Crow (1994).mp4': '' } },
+      },
+      probes: {
+        'UHD/The Crow (1994)/The Crow (1994).mp4': fakeProbe({
+          video: { codec: 'hevc', width: 3840, height: 2160, frame_rate: 24 },
+        }),
+        'HD/The Crow (1994)/The Crow (1994).mp4': fakeProbe({
+          video: { codec: 'h264', width: 1920, height: 1080, frame_rate: 24 },
+        }),
+      },
+    })
+    expect(result.output[0]?.versions).toEqual([
+      { category: 'UHD', quality: 'UHD' },
+      { category: 'HD', quality: 'HD' },
+    ])
+  })
+
+  it('captures the edition tag', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: {
+          'Blade Runner (1982)': {
+            'Blade Runner (1982) {edition-Final Cut}.mp4': '',
+          },
+        },
+      },
+    })
+    expect(result.output[0]?.edition).toBe('Final Cut')
+  })
+
+  it('serializes movies sorted by title then year then edition', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: {
+          'Beta (2020)': { 'Beta (2020).mp4': '' },
+          'Alpha (1999)': { 'Alpha (1999).mp4': '' },
+          'Alpha (2010)': { 'Alpha (2010).mp4': '' },
+        },
+      },
+    })
+    expect(result.output.map(m => `${m.title}-${m.year}`)).toEqual([
+      'Alpha-1999',
+      'Alpha-2010',
+      'Beta-2020',
+    ])
+  })
+})
+
+describe('movies module — warnings', () => {
+  it('warn_bad_file_name: file stem does not match the file pattern', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'The Crow (1994)': { 'crow.mp4': '' } },
+      },
+    })
+    expect(
+      result.warnings.some(w => w.issue.includes('does not match Plex naming convention'))
+    ).toBe(true)
+  })
+
+  it('warn_bad_file_name: silenced when toggle is false', () => {
+    const result = runMoviesScan({
+      spec: { UHD: { 'The Crow (1994)': { 'crow.mp4': '' } } },
+      rules: {
+        checks: { ...defaultMoviesRules.checks, warn_bad_file_name: false },
+      },
+    })
+    expect(
+      result.warnings.some(w => w.issue.includes('does not match Plex naming convention'))
+    ).toBe(false)
+  })
+
+  it('warn_bad_folder_name: folder stem does not match the folder pattern', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { CrowFolder: { 'The Crow (1994).mp4': '' } },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.includes('Folder name does not match'))).toBe(true)
+  })
+
+  it('warn_title_mismatch: file title differs from folder title', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'The Crow (1994)': { 'The Sparrow (1994).mp4': '' } },
+      },
+    })
+    expect(
+      result.warnings.some(w => w.issue.match(/File title .* does not match folder title/))
+    ).toBe(true)
+  })
+
+  it('warn_year_mismatch: file year differs from folder year', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'The Crow (1994)': { 'The Crow (1995).mp4': '' } },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/File year.*does not match folder year/))).toBe(
+      true
+    )
+  })
+
+  it('warn_suspicious_year: year before 1888', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'Ancient Film (1500)': { 'Ancient Film (1500).mp4': '' } },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Suspicious year/))).toBe(true)
+  })
+
+  it('warn_empty_edition: {edition-} tag with no value', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'The Crow (1994)': { 'The Crow (1994) {edition-}.mp4': '' } },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Empty edition tag/))).toBe(true)
+  })
+
+  it('warn_duplicate_edition: two files in same folder parse to same edition', () => {
+    // No-edition + empty-edition both collapse to null after the empty
+    // treatment, so they share an edition key and trigger the duplicate.
+    const result = runMoviesScan({
+      spec: {
+        UHD: {
+          'The Crow (1994)': {
+            'The Crow (1994).mp4': '',
+            'The Crow (1994) {edition-}.mp4': '',
+          },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Duplicate edition/))).toBe(true)
+  })
+
+  it('warn_multi_quality: same movie in two categories not in acceptable_quality_combos', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'X (2000)': { 'X (2000).mp4': '' } },
+        SD: { 'X (2000)': { 'X (2000).mp4': '' } },
+      },
+      rules: {
+        acceptable_quality_combos: [['UHD', 'HD']], // UHD/SD not acceptable
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Movie exists in multiple categories/))).toBe(
+      true
+    )
+  })
+
+  it('warn_multi_quality: silenced when combo is in acceptable_quality_combos', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'X (2000)': { 'X (2000).mp4': '' } },
+        HD: { 'X (2000)': { 'X (2000).mp4': '' } },
+      },
+      rules: {
+        acceptable_quality_combos: [['UHD', 'HD']],
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/multiple categories/))).toBe(false)
+  })
+
+  it('warn_no_videos: folder has no video files', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'The Crow (1994)': { 'cover.jpg': '' } }, // only a sidecar
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/No recognized video files/))).toBe(true)
+  })
+
+  it('warn_non_primary: a non-primary file (.mkv when primary is .mp4)', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'The Crow (1994)': { 'The Crow (1994).mkv': '' } },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Non-.MP4/))).toBe(true)
+  })
+
+  it('warn_unexpected_entries: stray .txt at media folder root', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'notes.txt': '' },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Unexpected file/))).toBe(true)
+  })
+
+  it('warn_loose_files: video file directly inside a category folder', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'stray.mp4': '' },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/loose video file/i))).toBe(true)
+  })
+
+  it('warn_extra_subfolders: nested folder inside a movie folder', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: {
+          'The Crow (1994)': {
+            'The Crow (1994).mp4': '',
+            Extras: { 'bonus.mp4': '' },
+          },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Unexpected subfolder/))).toBe(true)
+  })
+})
+
+describe('movies module — categories integration', () => {
+  it('uses the synthetic "default" category when none configured', () => {
+    const result = runMoviesScan({
+      spec: { 'X (2000)': { 'X (2000).mp4': '' } },
+      rules: { categories: [] },
+    })
+    expect(result.output[0]?.versions[0]?.category).toBe('default')
+  })
+
+  it('skips missing category folders silently', () => {
+    // Configure UHD + HD + SD; only build UHD. No crash.
+    const result = runMoviesScan({
+      spec: { UHD: { 'X (2000)': { 'X (2000).mp4': '' } } },
+    })
+    expect(result.output.length).toBe(1)
+  })
+})

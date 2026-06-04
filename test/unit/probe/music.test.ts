@@ -1,0 +1,334 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+
+import { probeMusic } from '../../../src/probe/music'
+import { defaultMusicRules, type MusicRules } from '../../../src/core/rules/music'
+import { ProbeCache } from '../../../src/probe/cache'
+import { WarningCollector } from '../../../src/core/types'
+import type { AudioProbe, ProbeData, TagData } from '../../../src/probe/types'
+import { buildLibrary, fakeProbe, type DirSpec } from '../../fixtures/library'
+
+function primeCache(cachePath: string, root: string, data: Record<string, ProbeData>): ProbeCache {
+  const cache = new ProbeCache(cachePath)
+  for (const [relPath, probeData] of Object.entries(data)) {
+    const stat = fs.statSync(path.join(root, relPath))
+    cache.set(relPath, stat.mtimeMs, stat.size, probeData)
+  }
+  return cache
+}
+
+const flacAudio = (overrides: Partial<AudioProbe> = {}): AudioProbe => ({
+  codec: 'flac',
+  bitrate: null,
+  sample_rate: 44100,
+  bit_depth: 16,
+  channels: 2,
+  ...overrides,
+})
+
+const mp3Audio = (overrides: Partial<AudioProbe> = {}): AudioProbe => ({
+  codec: 'mp3',
+  bitrate: 320_000,
+  sample_rate: 44100,
+  bit_depth: null,
+  channels: 2,
+  ...overrides,
+})
+
+const tags = (overrides: Partial<TagData> = {}): TagData => ({
+  title: 'Track Title',
+  artist: 'Pink Floyd',
+  album_artist: 'Pink Floyd',
+  album: 'The Wall',
+  year: 1979,
+  track: 1,
+  total_tracks: null,
+  disc: 1,
+  total_discs: null,
+  genre: null,
+  ...overrides,
+})
+
+describe('probeMusic', () => {
+  let tmpDir: string
+  let logSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moasys-probe-music-'))
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+    logSpy.mockRestore()
+  })
+
+  function setup(opts: {
+    spec: DirSpec
+    rules?: Partial<MusicRules>
+    probes: Record<string, ProbeData>
+  }) {
+    const rules: MusicRules = {
+      ...defaultMusicRules,
+      categories: [{ name: 'Music' }],
+      ...opts.rules,
+    }
+    const root = buildLibrary(opts.spec, 'moasys-probemusic-')
+    const cache = primeCache(path.join(tmpDir, 'probe.json'), root, opts.probes)
+    const warnings = new WarningCollector()
+    return { rules, root, cache, warnings }
+  }
+
+  it('aggregates tracks by artist and album, derives audio_quality_summary', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          'Pink Floyd': {
+            'The Wall': {
+              '01 - In the Flesh.flac': '',
+              '02 - The Thin Ice.flac': '',
+            },
+          },
+        },
+      },
+      probes: {
+        'Music/Pink Floyd/The Wall/01 - In the Flesh.flac': fakeProbe({
+          audio: flacAudio(),
+        }),
+        'Music/Pink Floyd/The Wall/02 - The Thin Ice.flac': fakeProbe({
+          audio: flacAudio(),
+        }),
+      },
+    })
+
+    const result = await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(result.output[0]?.albums[0]?.audio_quality_summary).toEqual(['FLAC 16/44.1'])
+  })
+
+  it('emits warn_quality_inconsistent when an album mixes codecs', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          Artist: {
+            Album: {
+              '01 - One.flac': '',
+              '02 - Two.mp3': '',
+            },
+          },
+        },
+      },
+      probes: {
+        'Music/Artist/Album/01 - One.flac': fakeProbe({ audio: flacAudio() }),
+        'Music/Artist/Album/02 - Two.mp3': fakeProbe({ audio: mp3Audio() }),
+      },
+    })
+    // Music rules default audio_extensions don't include .mp3 in primary, but
+    // the rules accept both. Force primary to include both so both are probed.
+    const fullRules: MusicRules = {
+      ...rules,
+      primary_extension: ['.flac', '.mp3'],
+    }
+
+    await probeMusic({ root_path: root }, fullRules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/inconsistent audio quality/i))).toBe(true)
+  })
+
+  it('emits warn_compilation_detected when AlbumArtist values differ', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          'Some Artist': {
+            'Compilation Album': {
+              '01 - One.flac': '',
+              '02 - Two.flac': '',
+            },
+          },
+        },
+      },
+      probes: {
+        'Music/Some Artist/Compilation Album/01 - One.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({ album_artist: 'Artist A' }),
+        }),
+        'Music/Some Artist/Compilation Album/02 - Two.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({ album_artist: 'Artist B' }),
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/distinct artists/i))).toBe(true)
+  })
+
+  it('skips warn_compilation_detected when folder is "Various Artists"', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          'Various Artists': {
+            'Comp Album': {
+              '01 - One.flac': '',
+              '02 - Two.flac': '',
+            },
+          },
+        },
+      },
+      probes: {
+        'Music/Various Artists/Comp Album/01 - One.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({ album_artist: 'Artist A' }),
+        }),
+        'Music/Various Artists/Comp Album/02 - Two.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({ album_artist: 'Artist B' }),
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/distinct artists/i))).toBe(false)
+  })
+
+  it('emits warn_folder_tag_mismatch when AlbumArtist tag differs from folder name', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          'Pink Floid': {
+            // misspelled folder
+            'The Wall': { '01 - One.flac': '' },
+          },
+        },
+      },
+      probes: {
+        'Music/Pink Floid/The Wall/01 - One.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({ album_artist: 'Pink Floyd' }),
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/Folder\/tag mismatch.*artist/i))).toBe(true)
+  })
+
+  it('emits warn_folder_tag_mismatch when Album tag differs from folder name', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          'Pink Floyd': {
+            'The Wal': { '01 - One.flac': '' }, // misspelled folder
+          },
+        },
+      },
+      probes: {
+        'Music/Pink Floyd/The Wal/01 - One.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({ album: 'The Wall' }),
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/Folder\/tag mismatch.*album/i))).toBe(true)
+  })
+
+  it('emits warn_missing_tags when required tag fields are blank', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          'Pink Floyd': {
+            'The Wall': { '01 - One.flac': '' },
+          },
+        },
+      },
+      probes: {
+        'Music/Pink Floyd/The Wall/01 - One.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({ title: null, album: null, artist: null, album_artist: null }),
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/missing required tags/i))).toBe(true)
+  })
+
+  it('emits warn_track_number_mismatch when filename track number differs from tag', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          'Pink Floyd': {
+            'The Wall': { '01 - One.flac': '' },
+          },
+        },
+      },
+      probes: {
+        'Music/Pink Floyd/The Wall/01 - One.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({ track: 5 }), // tag says 5, filename says 01
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/track-number mismatch/i))).toBe(true)
+  })
+
+  it('skips tag-driven checks when no tracks have tags', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          Artist: {
+            Album: { '01 - One.flac': '' },
+          },
+        },
+      },
+      probes: {
+        'Music/Artist/Album/01 - One.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: null, // no tags at all
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all()).toEqual([])
+  })
+
+  it('silences warnings when their toggles are false', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          Artist: {
+            Album: { '01 - One.flac': '' },
+          },
+        },
+      },
+      rules: {
+        checks: {
+          ...defaultMusicRules.checks,
+          warn_compilation_detected: false,
+          warn_folder_tag_mismatch: false,
+          warn_missing_tags: false,
+          warn_track_number_mismatch: false,
+        },
+      },
+      probes: {
+        'Music/Artist/Album/01 - One.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({
+            title: null,
+            album: 'wrong-album',
+            album_artist: 'wrong-artist',
+            track: 99,
+          }),
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all()).toEqual([])
+  })
+})

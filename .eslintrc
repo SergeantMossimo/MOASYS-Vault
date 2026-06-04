@@ -40,9 +40,13 @@
     "@typescript-eslint/no-explicit-any": "error",
 
     // Warn on variables that are declared but never used.
-    // The argsIgnorePattern lets you prefix unused function parameters
-    // with _ to signal they're intentionally unused (e.g. _event).
-    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    // Both ignorePatterns let you prefix names with _ to signal "intentionally
+    // unused" — useful for destructured throwaway values (_unused, ...rest)
+    // and unused function parameters (_event).
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }
+    ],
 
     // Allow console.log — this is a CLI tool, console output is intentional.
     // In a web app you'd typically set this to "warn" or "error".
