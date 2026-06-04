@@ -1,115 +1,87 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# MOASYS-Vault — Shows rules
+# MOASYS-Vault — Shows rules (defaults)
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# This file shows every available option. Uncomment a line (or block) to
-# override the code default with your own value. Anything you leave commented
-# uses the code default — the comments simply document what's possible.
+# This file is a snapshot of the code-shipped defaults. Edit a value to
+# change the project-wide default. Comment a line out to fall back to the
+# current code default.
 #
-# Code defaults live in src/core/rules/shows.ts.
+# Personal overrides (extra ignored_season_names, custom quality_thresholds,
+# categories) belong in `rules/shows.local.yaml` — gitignored.
+#
+# Loader behavior:  code defaults  →  this file  →  shows.local.yaml  →  Zod
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Regex patterns ──────────────────────────────────────────────────────────
-# Patterns can be plain strings or { pattern, flags } objects. JavaScript
-# regex flags: d, g, i, m, s, u, y. Named capture groups required.
-#
-# patterns:
-#   show_folder: '^(?<title>.+)\s\((?<year>\d{4})\)$'                                # Star Trek Enterprise (2001)
-#   season_folder:
-#     pattern: '^Season\s(?<season>\d{2})$'                                          # Season 01 (zero-padded)
-#     flags: 'i'
-#   file:
-#     pattern: '^(?<title>.+)\s\((?<year>\d{4})\)\s-\sS(?<season>\d{2})E(?<episode>\d{2})(?:-E?(?<episode_end>\d{2}))?(?:\s-\s.+)?$'
-#     flags: 'i'
+patterns:
+  show_folder: '^(?<title>.+)\s\((?<year>\d{4})\)$'                                # Star Trek Enterprise (2001)
+  season_folder:
+    pattern: '^Season\s(?<season>\d{2})$'                                          # Season 01 (case-insensitive)
+    flags: 'i'
+  file:
+    pattern: '^(?<title>.+)\s\((?<year>\d{4})\)\s-\sS(?<season>\d{2})E(?<episode>\d{2})(?:-E?(?<episode_end>\d{2}))?(?:\s-\s.+)?$'
+    flags: 'i'
 
-# ── Media folders ───────────────────────────────────────────────────────────
-# Subfolders under root_path to walk, each tagged for output. The `name` is
-# the actual folder name on disk; the `tag` is the label used in output JSON
-# and referenced by quality_thresholds below.
-#
-# Leave this commented out or set to [] for a flat library — the scanner will
-# walk root_path itself and tag records with "default".
-media_folders:
-  - { name: UHD,        tag: UHD }
-  - { name: HD,         tag: HD }
-  - { name: SD,         tag: SD }
-  - { name: Other UHD,  tag: Other UHD }
-  - { name: Other HD,   tag: Other HD }
-  - { name: Other SD,   tag: Other SD }
+# ── Categories ──────────────────────────────────────────────────────────────
+# Subfolders under root_path to walk. Each category's `name` is both the
+# folder name on disk AND the label used in output JSON. Empty (the default)
+# means: walk root_path directly and label records as "default".
+categories: []
 
 # ── File extensions ─────────────────────────────────────────────────────────
-# Primary = the formats you expect; anything else triggers warn_non_primary.
-# Video = every extension treated as an episode file; outside this list = "unexpected".
-#
-# primary_extension:
-#   - .mp4
-#
-# video_extensions:
-#   - .mp4
-#   - .mkv
-#   - .avi
-#   - .m4v
-#   - .mov
-#   - .wmv
-#   - .ts
-#   - .m2ts
+primary_extension:
+  - .mp4
+
+video_extensions:
+  - .mp4
+  - .mkv
+  - .avi
+  - .m4v
+  - .mov
+  - .wmv
+  - .ts
+  - .m2ts
 
 # ── Special-season folder names ─────────────────────────────────────────────
-# Season folder names that bypass the Season XX regex check.
-# Code default is just ["Specials"] — overridden here for this library.
+# Season folder names that bypass the Season XX regex check. Plex's universal
+# convention is `Specials`.
 ignored_season_names:
   - Specials
-  - Champion of Champions
 
 # ── Sidecar files ───────────────────────────────────────────────────────────
-# Extensions silently allowed anywhere in the show hierarchy.
-#
-# sidecar_extensions:
-#   - .nfo
-#   - .jpg
-#   - .jpeg
-#   - .png
-#   - .webp
-#   - .tbn
-#   - .srt
-#   - .ass
-#   - .ssa
-#   - .vtt
-#   - .sub
-#   - .idx
+sidecar_extensions:
+  - .nfo
+  - .jpg
+  - .jpeg
+  - .png
+  - .webp
+  - .tbn
+  - .srt
+  - .ass
+  - .ssa
+  - .vtt
+  - .sub
+  - .idx
 
 # ── Quality buckets (ffprobe pass) ──────────────────────────────────────────
-# Maps folder tags to expected pixel ranges. The file's long edge (max of
-# width and height) must fall in [min_width, max_width].
-quality_thresholds:
-  - name: UHD
-    tags: [UHD, "Other UHD"]
-    min_width: 2000
-  - name: HD
-    tags: [HD, "Other HD"]
-    min_width: 1000
-    max_width: 2000
-  - name: SD
-    tags: [SD, "Other SD"]
-    max_width: 1000
+# Empty default = silent. Configure for your library in shows.local.yaml.
+quality_thresholds: []
 
 # ── Per-warning toggles ─────────────────────────────────────────────────────
-# All warnings ship enabled. Set to false to silence individually.
-#
-# checks:
-#   warn_non_primary: true        # File isn't the configured primary format
-#   warn_no_videos: true          # Season folder has no video files
-#   warn_bad_show_folder: true    # Show folder doesn't match patterns.show_folder
-#   warn_bad_season_folder: true  # Season folder doesn't match patterns.season_folder (and isn't in ignored_season_names)
-#   warn_bad_file_name: true      # File doesn't match patterns.file
-#   warn_show_year_mismatch: true # File's show/year vs parent show folder
-#   warn_season_mismatch: true    # File's season number vs parent season folder
-#   warn_episode_gaps: true       # Gap detected in episode numbers
-#   warn_quality_mismatch: true   # ffprobe-detected dimensions don't fit folder's quality_thresholds bucket
-#   warn_loose_files: true        # Video files at unexpected nesting level
-#   warn_extra_subfolders: true   # Unexpected subfolders inside a season folder
-#   warn_unexpected_entries: true # Non-video, non-sidecar files
-#   warn_tmdb_no_match: true      # TMDB found no plausible match (validate pass)
-#   warn_tmdb_low_confidence: true # TMDB match score below threshold (validate pass)
-#   warn_tmdb_episode_count: true # Season has fewer episodes than TMDB lists (validate pass)
-#   warn_tmdb_title_canonical: true # Folder title differs from TMDB filename-safe title — rename suggestion (validate pass)
+checks:
+  warn_non_primary: true          # File isn't the configured primary format
+  warn_no_videos: true            # Season folder has no video files
+  warn_bad_show_folder: true      # Show folder doesn't match patterns.show_folder
+  warn_bad_season_folder: true    # Season folder doesn't match (and isn't in ignored_season_names)
+  warn_bad_file_name: true        # File doesn't match patterns.file
+  warn_show_year_mismatch: true   # File's show/year vs parent show folder
+  warn_season_mismatch: true      # File's season number vs parent season folder
+  warn_episode_gaps: true         # Gap detected in episode numbers
+  warn_quality_mismatch: true     # ffprobe dimensions don't fit quality_thresholds bucket
+  warn_loose_files: true          # Video files at unexpected nesting
+  warn_extra_subfolders: true     # Unexpected subfolders inside a season folder
+  warn_unexpected_entries: true   # Non-video, non-sidecar files
+  warn_tmdb_no_match: true        # TMDB found no plausible match
+  warn_tmdb_low_confidence: true  # TMDB match score below threshold
+  warn_tmdb_episode_count: true   # Local season has fewer episodes than TMDB lists
+  warn_tmdb_title_canonical: true # Folder title differs from TMDB filename-safe canonical

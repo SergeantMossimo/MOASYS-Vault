@@ -1,14 +1,19 @@
 /**
  * core/rules/loader.ts
  * --------------------
- * Generic rules loader. For a given media type:
- *   1. Start with the code-shipped defaults
- *   2. If rules/<mediaType>.yaml exists, deep-merge the user's overrides on top
- *   3. Validate the merged result with the Zod schema
- *   4. Return the typed, fully-populated rules object
+ * Three-tier rules loader. For each media type the loader merges, in order:
  *
- * On validation failure we print a clear message and exit — there's no
- * value in scanning with broken rules.
+ *   1. Code-shipped defaults — always the base layer
+ *   2. `rules/<mediaType>.yaml` — committed snapshot of defaults, edited in
+ *      place when you want to change the defaults for everyone using this
+ *      checkout. Missing? Defaults still apply.
+ *   3. `rules/<mediaType>.local.yaml` — gitignored personal overrides. This
+ *      is where a user's library-specific settings (quality_thresholds,
+ *      personal ignored_season_names, extra media folders) live.
+ *
+ * After merging, the result is validated by the Zod schema. Validation errors
+ * print a readable message and exit — there's no value in scanning with
+ * broken rules.
  */
 
 import fs from 'fs'
@@ -76,6 +81,33 @@ function resolveSentinels<T>(value: T): T {
 }
 
 // ─────────────────────────────────────────────
+// YAML reader
+// ─────────────────────────────────────────────
+
+/**
+ * Read and parse a YAML file. Returns the parsed object on success, `null`
+ * if the file is empty or all-comments, exits the process on parse error.
+ * Returns `undefined` when the file doesn't exist on disk (caller decides
+ * whether that's expected).
+ */
+function readYamlIfExists(filePath: string): unknown {
+  if (!fs.existsSync(filePath)) return undefined
+
+  let parsed: unknown
+  try {
+    parsed = jsYaml.load(fs.readFileSync(filePath, 'utf-8'))
+  } catch (err) {
+    console.error(`\n  Error parsing ${filePath} as YAML:`)
+    console.error(`    ${(err as Error).message}`)
+    process.exit(1)
+  }
+  // A file consisting only of comments parses to null. Normalize that to
+  // `undefined` so the caller treats it like "no overrides" rather than
+  // emitting a useless merge.
+  return parsed ?? undefined
+}
+
+// ─────────────────────────────────────────────
 // Loader
 // ─────────────────────────────────────────────
 
@@ -84,7 +116,7 @@ export interface LoadRulesOptions<T> {
   mediaType: string
   /** Zod schema for the rules — also the source of the inferred TypeScript type */
   schema: ZodType<T>
-  /** Code-shipped defaults — used wholesale if no YAML exists */
+  /** Code-shipped defaults — the base before any YAML files are merged */
   defaults: T
   /** Project root (where the rules/ folder lives) */
   projectRoot: string
@@ -93,40 +125,53 @@ export interface LoadRulesOptions<T> {
 /**
  * Load and validate rules for one media type.
  *
- * If rules/<mediaType>.yaml is missing, defaults are returned unchanged.
- * If it exists but is invalid YAML or fails schema validation, we exit
- * with a readable error rather than crashing later inside a media module.
+ * Merges in order: code defaults → `rules/<mediaType>.yaml` (committed,
+ * usually mirrors defaults) → `rules/<mediaType>.local.yaml` (gitignored,
+ * personal overrides). The final result is Zod-validated.
+ *
+ * Prints one boot-time log line per file actually loaded plus one final
+ * summary so you can see at a glance which layers contributed.
  */
 export function loadRules<T>(opts: LoadRulesOptions<T>): T {
   const { mediaType, schema, defaults, projectRoot } = opts
-  const rulesPath = path.join(projectRoot, 'rules', `${mediaType}.yaml`)
+  const basePath = path.join(projectRoot, 'rules', `${mediaType}.yaml`)
+  const localPath = path.join(projectRoot, 'rules', `${mediaType}.local.yaml`)
 
   let merged: unknown = defaults
+  let baseOverrideCount = 0
+  let localOverrideCount = 0
 
-  if (fs.existsSync(rulesPath)) {
-    let userRules: unknown
-    try {
-      userRules = jsYaml.load(fs.readFileSync(rulesPath, 'utf-8'))
-    } catch (err) {
-      console.error(`\n  Error parsing rules/${mediaType}.yaml as YAML:`)
-      console.error(`    ${(err as Error).message}`)
-      process.exit(1)
-    }
-    // A file consisting only of comments parses to null. Distinguish that
-    // from a file with real overrides so users can tell at a glance whether
-    // anything they wrote is taking effect.
-    if (isPlainObject(userRules) && Object.keys(userRules).length > 0) {
-      const overrideCount = Object.keys(userRules).length
-      merged = deepMerge(defaults, userRules)
-      console.log(`    [RULES] Loaded ${overrideCount} override(s) from rules/${mediaType}.yaml`)
-    } else {
-      console.log(
-        `    [RULES] Using code defaults (rules/${mediaType}.yaml has no active overrides)`
-      )
-    }
-  } else {
-    console.log(`    [RULES] Using code defaults (no rules/${mediaType}.yaml)`)
+  // ── Tier 2: committed YAML (mirrors code defaults by default) ──────────
+  const baseRules = readYamlIfExists(basePath)
+  if (isPlainObject(baseRules) && Object.keys(baseRules).length > 0) {
+    baseOverrideCount = Object.keys(baseRules).length
+    merged = deepMerge(merged, baseRules)
   }
+
+  // ── Tier 3: gitignored personal overrides ──────────────────────────────
+  const localRules = readYamlIfExists(localPath)
+  if (isPlainObject(localRules) && Object.keys(localRules).length > 0) {
+    localOverrideCount = Object.keys(localRules).length
+    merged = deepMerge(merged, localRules)
+  }
+
+  // ── Boot-time logging ─────────────────────────────────────────────────
+  // Distinguish each layer so users can see what's in play. The "base" file
+  // usually mirrors defaults verbatim (so its override count is the full
+  // field count); the "local" file is where real per-user changes live.
+  if (baseRules === undefined && localRules === undefined) {
+    console.log(`    [RULES] Using code defaults (no rules/${mediaType}.yaml found)`)
+  } else if (localOverrideCount === 0) {
+    console.log(`    [RULES] Loaded rules/${mediaType}.yaml (no local overrides)`)
+  } else {
+    console.log(
+      `    [RULES] Loaded rules/${mediaType}.yaml + ${localOverrideCount} override(s) from rules/${mediaType}.local.yaml`
+    )
+  }
+  // Reference baseOverrideCount so TS doesn't complain about unused vars in
+  // the future if we add finer-grained logging. It's a real signal already
+  // surfaced in the messages above.
+  void baseOverrideCount
 
   // Resolve sentinels BEFORE validation so the schema sees their resolved form
   merged = resolveSentinels(merged)
@@ -135,10 +180,21 @@ export function loadRules<T>(opts: LoadRulesOptions<T>): T {
     return schema.parse(merged)
   } catch (err) {
     if (err instanceof ZodError) {
-      console.error(`\n  Error: rules/${mediaType}.yaml failed schema validation:`)
+      // We can't easily attribute each issue to base vs local without diffing
+      // the merged result, so we report at the merged layer.
+      const sources = [
+        baseRules && `rules/${mediaType}.yaml`,
+        localRules && `rules/${mediaType}.local.yaml`,
+      ]
+        .filter(Boolean)
+        .join(' + ')
+      const where = sources || 'code defaults'
+      console.error(
+        `\n  Error: rules for ${mediaType} failed schema validation (sources: ${where}):`
+      )
       for (const issue of err.issues) {
-        const where = issue.path.length > 0 ? issue.path.join('.') : '(root)'
-        console.error(`    - ${where}: ${issue.message}`)
+        const at = issue.path.length > 0 ? issue.path.join('.') : '(root)'
+        console.error(`    - ${at}: ${issue.message}`)
       }
       process.exit(1)
     }

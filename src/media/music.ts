@@ -34,7 +34,9 @@ import {
 } from '../core/files'
 import { findNumericGaps } from '../core/gaps'
 import { MusicRules } from '../core/rules/music'
-import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
+import { compilePattern, resolveCategories } from '../core/rules/helpers'
+import { finalizeVersions, distinctCategories } from '../core/versions'
+import { ProbeData } from '../probe/types'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -87,18 +89,19 @@ export function createMusicModule(
   const multiDiscRegex = compilePattern(rules.patterns.multi_disc)
   const singleDiscRegex = compilePattern(rules.patterns.single_disc)
 
-  const effectiveMediaFolders = resolveMediaFolders(rules.media_folders)
-  const mediaTypeOrder = effectiveMediaFolders.map(mf => mf.tag)
+  const effectiveCategories = resolveCategories(rules.categories)
+  const categoryOrder = effectiveCategories.map(c => c.name)
 
   return {
-    getMediaFolders: () => effectiveMediaFolders,
+    getCategories: () => effectiveCategories,
 
-    scanMediaFolder(
+    scanCategory(
       folderPath: string,
       folderName: string,
-      tag: string,
+      category: string,
       config: MusicConfig,
-      warnings: WarningCollector
+      warnings: WarningCollector,
+      _probeByPath: Map<string, ProbeData>
     ): Map<string, ArtistRecord> {
       const records = new Map<string, ArtistRecord>()
 
@@ -164,7 +167,7 @@ export function createMusicModule(
 
         // Loose audio files at artist level — silently dropped without this
         // check. The user's typical case: soundtracks organized as
-        // MediaFolder/AlbumName/tracks (no artist level around the album).
+        // Category/AlbumName/tracks (no artist level around the album).
         if (rules.checks.warn_loose_files) {
           const looseArtist = albumEntries.filter(
             e => e.isFile() && hasExtension(e.name, rules.audio_extensions)
@@ -282,12 +285,13 @@ export function createMusicModule(
             }
           }
 
-          // Collect qualities from all audio file extensions (not just primary)
-          // e.g. album with .flac and .mp3 -> qualities = { "FLAC", "MP3" }
-          const qualities = new Set<string>()
+          // Collect codecs from all audio file extensions (not just primary)
+          // e.g. album with .flac and .mp3 -> codecs = { "FLAC", "MP3" }
+          // Each codec pairs with the current category to form a Version.
+          const codecs = new Set<string>()
           for (const f of audioFiles) {
             const ext = path.extname(f.name).slice(1).toUpperCase()
-            qualities.add(ext)
+            codecs.add(ext)
           }
 
           // Track numbers per disc for gap detection: { discNum: [trackNums] }
@@ -340,16 +344,19 @@ export function createMusicModule(
             artistRecord.albums.set(albumKey, {
               album: albumEntry.name,
               track_count: trackCount,
-              qualities,
-              media_type: new Set(),
+              versions: [],
             })
           } else {
             const existing = artistRecord.albums.get(albumKey)!
-            for (const q of qualities) existing.qualities.add(q)
             existing.track_count = Math.max(existing.track_count, trackCount)
           }
 
-          artistRecord.albums.get(albumKey)!.media_type.add(tag)
+          // One Version per (category, codec) pair. Deduped on serialize so
+          // re-scans within the same category don't bloat the list.
+          const album = artistRecord.albums.get(albumKey)!
+          for (const codec of codecs) {
+            album.versions.push({ category, quality: codec })
+          }
         }
       }
 
@@ -368,8 +375,7 @@ export function createMusicModule(
             existingArtist.albums.set(albumKey, newAlbum)
           } else {
             const existingAlbum = existingArtist.albums.get(albumKey)!
-            for (const q of newAlbum.qualities) existingAlbum.qualities.add(q)
-            for (const t of newAlbum.media_type) existingAlbum.media_type.add(t)
+            existingAlbum.versions.push(...newAlbum.versions)
             existingAlbum.track_count = Math.max(existingAlbum.track_count, newAlbum.track_count)
           }
         }
@@ -377,8 +383,6 @@ export function createMusicModule(
     },
 
     serialize(records: Map<string, ArtistRecord>): ArtistOutput[] {
-      const orderMediaType = (mt: Set<string>) => mediaTypeOrder.filter(t => mt.has(t))
-
       return [...records.values()]
         .sort((a, b) => a.artist.toLowerCase().localeCompare(b.artist.toLowerCase()))
         .map(artist => ({
@@ -388,26 +392,26 @@ export function createMusicModule(
             .map(album => ({
               album: album.album,
               track_count: album.track_count,
-              qualities: [...album.qualities].sort(),
-              media_type: orderMediaType(album.media_type),
+              versions: finalizeVersions(album.versions, categoryOrder),
             })),
         }))
     },
 
     /**
      * Post-merge check: emit one warning per album that ended up in multiple
-     * media folders. Runs once after all folders are scanned.
+     * categories. Runs once after all folders are scanned.
      */
     postScan(records: Map<string, ArtistRecord>, warnings: WarningCollector): void {
       if (!rules.checks.warn_duplicate_album) return
 
       for (const artist of records.values()) {
         for (const album of artist.albums.values()) {
-          if (album.media_type.size <= 1) continue
-          const tags = mediaTypeOrder.filter(t => album.media_type.has(t)).join(', ')
+          const cats = distinctCategories(album.versions)
+          if (cats.length <= 1) continue
+          const ordered = categoryOrder.filter(c => cats.includes(c))
           warnings.add(
             path.join(artist.artist, album.album),
-            `Duplicate album found in multiple media folders: ${tags}`
+            `Duplicate album found in multiple categories: ${ordered.join(', ')}`
           )
         }
       }

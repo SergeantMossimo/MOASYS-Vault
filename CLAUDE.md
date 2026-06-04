@@ -36,16 +36,25 @@ The user already has Plex; the point isn't to replicate Plex's functionality. It
 
 ## Architecture in one paragraph
 
-`config.json` carries per-machine "where" data (`root_path` per media type). `rules/<type>.yaml` carries "how" data (regex patterns, file extensions, naming conventions, per-warning toggles, the `media_folders` list of subfolders to walk). Each media module (`src/media/<type>.ts`) is a **factory** that takes the validated rules and returns a `MediaModule` object. The core scanner (`src/core/scanner.ts`) iterates `module.getMediaFolders()` and calls `module.scanMediaFolder()` for each. Validation is via Zod in `src/core/rules/`. Optional ffprobe pass in `src/probe/` writes sidecar `probe.json` + `probe-warnings.json` files.
+`config.json` carries per-machine "where" data (`root_path` per media type), validated by Zod in `src/core/config.ts`. `rules/<type>.yaml` carries "how" data (regex patterns, file extensions, naming conventions, per-warning toggles, the `categories` list of subfolders to walk). Each media module (`src/media/<type>.ts`) is a **factory** that takes the validated rules and returns a `MediaModule` object. The merged runner `src/scan.ts` per type: loads the probe cache, runs `probe<Type>` (ffprobe + ID3 for music), then calls `scan()` in `src/core/scanner.ts` which iterates `module.getCategories()` and calls `module.scanCategory()` for each — passing a `probeByPath` map so movies/shows derive each version's quality from ffprobe dimensions via `deriveQuality()`. One run produces `<type>.json` (catalog with `versions: [{category, quality}]`), `probe.json` (rich raw data), and `warnings.json` (everything from both passes). Validation is via Zod in `src/core/rules/`.
 
 ## Rules system
 
-- One `rules/<type>.yaml` per media type. Every option is present but commented out by default; users uncomment to override.
-- Code defaults live in `src/core/rules/<type>.ts` alongside the Zod schema.
-- The loader (`src/core/rules/loader.ts`) deep-merges user overrides on top of defaults, resolves the `'current'` sentinel for year ranges, validates the result, and prints one of three boot-time messages:
-  - `[RULES] Loaded N override(s) from rules/<type>.yaml`
-  - `[RULES] Using code defaults (rules/<type>.yaml has no active overrides)`
-  - `[RULES] Using code defaults (no rules/<type>.yaml)`
+Three-tier merge for each media type:
+
+```text
+code defaults  →  rules/<type>.yaml  →  rules/<type>.local.yaml  →  Zod-validated result
+```
+
+- **Code defaults** live in `src/core/rules/<type>.ts` alongside the Zod schema. Neutral / universal — no library-specific values.
+- **`rules/<type>.yaml`** is the committed snapshot of code defaults, every option visible and uncommented. Edit to change project-wide defaults. Commit-friendly.
+- **`rules/<type>.local.yaml`** is the gitignored personal-overrides file. Library-specific values (extra categories, custom quality_thresholds, personal ignored_season_names) live here.
+
+The loader (`src/core/rules/loader.ts`) deep-merges the layers, resolves the `'current'` sentinel for year ranges, validates with Zod, and prints boot-time messages distinguishing each layer:
+
+- `[RULES] Loaded rules/<type>.yaml + N override(s) from rules/<type>.local.yaml`
+- `[RULES] Loaded rules/<type>.yaml (no local overrides)`
+- `[RULES] Using code defaults (no rules/<type>.yaml found)`
 
 ## Warnings philosophy
 
@@ -54,14 +63,14 @@ Every check emits warnings only. Never auto-fix. Warning messages should include
 ## Useful commands
 
 ```bash
-npm run movies        # Scan one media type
+npm run movies        # Probe + scan one media type
 npm run shows
 npm run music
 npm run audiobooks
 npm run scan:all      # All four sequentially
 
-npm run probe:movies  # ffprobe pass (separate from scan)
-npm run probe:all     # All four probes
+npm run validate:movies   # TMDB validation (movies + shows only)
+npm run validate:all
 
 npm run typecheck     # tsc --noEmit
 npm run lint          # eslint
@@ -72,7 +81,7 @@ The smoke test pattern is to run the scan against the user's real library on `M:
 
 ## Don't waste tokens
 
-The user's library: ~2,500 movies, ~130 shows, ~220 music albums, ~110 audiobooks. The first ffprobe pass over movies is 12–20 minutes — defer running it unless the user explicitly asks. Use the existing cache (`cache/<type>-probe.json`) for re-runs.
+The user's library: ~2,500 movies, ~130 shows, ~220 music albums, ~110 audiobooks. With the probe cache primed (which it already is on this machine), all four scans finish in seconds. A FULL first-run probe over movies would be 12–20 min — but the cache should always be warm here. If you must invalidate the cache, do it deliberately. Cache files live at `cache/<type>-probe.json`.
 
 When making bulk changes across all 4 media types, use `Edit` with `replace_all: true` rather than reading each file separately. Most cross-cutting changes have an identical shape per file.
 

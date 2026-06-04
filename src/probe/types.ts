@@ -115,6 +115,21 @@ export interface CacheFile {
 export const CACHE_VERSION = 3
 
 // ─────────────────────────────────────────────
+// Probe result envelope
+// ─────────────────────────────────────────────
+
+/**
+ * What each probe pass returns. `output` is the aggregated per-type shape
+ * written to probe.json. `byPath` is a flat lookup map (forward-slash
+ * relative path → raw probe data) that the scan pass uses to derive each
+ * version's quality field.
+ */
+export interface ProbeResult<T> {
+  output: T
+  byPath: Map<string, ProbeData>
+}
+
+// ─────────────────────────────────────────────
 // Per-media probe output shapes
 // ─────────────────────────────────────────────
 

@@ -13,18 +13,19 @@ import fs from 'fs'
 import path from 'path'
 
 import { WarningCollector, WarningsOutput, MediaModule, BaseMediaConfig } from './types'
+import { ProbeData } from '../probe/types'
 
 // ─────────────────────────────────────────────
 // Core scanner
 // ─────────────────────────────────────────────
 
 /**
- * Walk the effective media_folders for this module and delegate per-folder
- * parsing to the media module's scanMediaFolder() function.
+ * Walk the effective categories for this module and delegate per-folder
+ * parsing to the media module's scanCategory() function.
  *
- * The folder list comes from the module's getMediaFolders() — which reads
- * from rules.media_folders, or returns a single synthetic entry pointing
- * at root_path with tag "default" when the user hasn't configured any.
+ * The category list comes from the module's getCategories() — which reads
+ * from rules.categories, or returns a single synthetic entry pointing at
+ * root_path with name "default" when the user hasn't configured any.
  *
  * Returns a Map of { unique_key -> record } where the record structure
  * is defined by the media module.
@@ -32,31 +33,39 @@ import { WarningCollector, WarningsOutput, MediaModule, BaseMediaConfig } from '
 export function scan<TRecord, TOutput, TConfig extends BaseMediaConfig>(
   config: TConfig,
   mediaModule: MediaModule<TRecord, TOutput, TConfig>,
-  warnings: WarningCollector
+  warnings: WarningCollector,
+  probeByPath: Map<string, ProbeData>
 ): Map<string, TRecord> {
   const records = new Map<string, TRecord>()
   const { root_path } = config
-  const mediaFolders = mediaModule.getMediaFolders()
+  const categories = mediaModule.getCategories()
 
-  for (const mf of mediaFolders) {
-    const folderPath = path.join(root_path, mf.name)
+  for (const cat of categories) {
+    const folderPath = path.join(root_path, cat.folderName)
 
     // Skip gracefully if the folder doesn't exist on this machine
     if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
-      console.log(`    [SKIP] Media folder not found: ${folderPath}`)
+      console.log(`    [SKIP] Category folder not found: ${folderPath}`)
       continue
     }
 
-    // For the synthetic single-entry case (empty name + "default" tag), log
-    // a friendlier message so the user understands what's happening.
-    if (mf.name === '') {
-      console.log(`    [SCAN] root_path (no media_folders configured; tag: ${mf.tag})`)
+    // For the synthetic single-entry case (empty folderName + "default" label),
+    // log a friendlier message so the user understands what's happening.
+    if (cat.folderName === '') {
+      console.log(`    [SCAN] root_path (no categories configured; label: ${cat.name})`)
     } else {
-      console.log(`    [SCAN] ${mf.name} (${mf.tag})`)
+      console.log(`    [SCAN] ${cat.folderName}`)
     }
 
     // Ask the media module to scan this folder and return its records
-    const incoming = mediaModule.scanMediaFolder(folderPath, mf.name, mf.tag, config, warnings)
+    const incoming = mediaModule.scanCategory(
+      folderPath,
+      cat.folderName,
+      cat.name,
+      config,
+      warnings,
+      probeByPath
+    )
 
     // Delegate merging to the media module — each type has its own merge logic
     mediaModule.merge(records, incoming)

@@ -33,8 +33,8 @@ export interface ProbeTask {
   relativePath: string
   /** Absolute path used to spawn ffprobe */
   absolutePath: string
-  /** Folder tag from config.json — used for quality_threshold lookup */
-  folderTag: string
+  /** Category label (folder name, or "default") — used for quality_threshold lookup */
+  category: string
   /** File mtime in ms (cache key) */
   mtime: number
   /** File size in bytes (cache key) */
@@ -120,22 +120,21 @@ export async function probeBatch(
 
 /**
  * Shape of one quality_threshold bucket in the rules.
- * Replicated here as a structural interface so this module doesn't have
- * to import from src/core/rules — both rules schemas (movies and shows)
- * use the same bucket shape, and we only consume four fields.
+ * Replicated here as a structural interface so this module doesn't have to
+ * import from src/core/rules — both rules schemas (movies and shows) use
+ * the same bucket shape, and we only consume three fields.
  */
 export interface QualityBucket {
   name: string
-  tags: string[]
   min_width?: number
   max_width?: number
 }
 
 /**
  * Result of checking one file's dimensions against the quality bucket
- * defined for its folder tag.
+ * whose name matches the file's category.
  *
- * `bucket` is null when no bucket lists this tag (we silently pass).
+ * `bucket` is null when no bucket matches the category (we silently pass).
  * `fits` indicates whether the file's long edge falls in the bucket's range.
  * The caller decides whether `!fits` should emit a warning.
  */
@@ -145,13 +144,13 @@ export interface QualityClassification {
   fits: boolean
 }
 
-/** Find the quality bucket that contains a given folder tag, or null. */
-function findBucket(tag: string, buckets: QualityBucket[]): QualityBucket | null {
-  return buckets.find(b => b.tags.includes(tag)) ?? null
+/** Find the quality bucket whose name matches the category, or null. */
+function findBucket(category: string, buckets: QualityBucket[]): QualityBucket | null {
+  return buckets.find(b => b.name === category) ?? null
 }
 
 /**
- * Check a video file's dimensions against the quality bucket for its folder.
+ * Check a video file's dimensions against the quality bucket for its category.
  *
  * Uses the long edge (max of width and height) so a rotated or unusually
  * shaped file is classified by its largest dimension — a 1080x1920 vertical
@@ -163,10 +162,10 @@ function findBucket(tag: string, buckets: QualityBucket[]): QualityBucket | null
 export function classifyQuality(
   width: number,
   height: number,
-  folderTag: string,
+  category: string,
   buckets: QualityBucket[]
 ): QualityClassification {
-  const bucket = findBucket(folderTag, buckets)
+  const bucket = findBucket(category, buckets)
   const longEdge = Math.max(width, height)
 
   if (bucket === null) {
@@ -177,4 +176,28 @@ export function classifyQuality(
   const underMax = bucket.max_width === undefined || longEdge <= bucket.max_width
 
   return { bucket, longEdge, fits: overMin && underMax }
+}
+
+/**
+ * Derive a quality label by finding the first bucket whose dimension range
+ * contains the file's long edge. Independent of category — answers the
+ * question "what quality IS this file?" rather than "does this file fit
+ * its category's expected quality?" (`classifyQuality` answers the latter).
+ *
+ * Returns null when no bucket's range matches, or when quality_thresholds
+ * is empty. Buckets are scanned in declaration order, so put narrower
+ * ranges first if any might overlap.
+ */
+export function deriveQuality(
+  width: number,
+  height: number,
+  buckets: QualityBucket[]
+): string | null {
+  const longEdge = Math.max(width, height)
+  for (const bucket of buckets) {
+    const overMin = bucket.min_width === undefined || longEdge >= bucket.min_width
+    const underMax = bucket.max_width === undefined || longEdge <= bucket.max_width
+    if (overMin && underMax) return bucket.name
+  }
+  return null
 }

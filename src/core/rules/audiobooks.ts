@@ -13,7 +13,7 @@
 
 import { z } from 'zod'
 
-import { PatternSchema, MediaFolderSchema } from './helpers'
+import { PatternSchema, CategorySchema } from './helpers'
 
 export const AudiobooksRulesSchema = z.object({
   /**
@@ -30,8 +30,8 @@ export const AudiobooksRulesSchema = z.object({
     multi_disc: PatternSchema,
   }),
 
-  /** Subfolders under root_path to walk. Empty = walk root_path directly with "default" tag. */
-  media_folders: z.array(MediaFolderSchema),
+  /** Subfolders under root_path to walk. Empty = walk root_path directly with "default" label. */
+  categories: z.array(CategorySchema),
 
   /** Expected primary file format(s) for audiobook chapters. */
   primary_extension: z.array(z.string()).min(1),
@@ -80,7 +80,7 @@ export const defaultAudiobooksRules: AudiobooksRules = AudiobooksRulesSchema.par
     single_disc: '^(?<chapter>\\d{2})\\s-\\s(?<name>.+)$',
     multi_disc: '^(?<disc>\\d+)(?<chapter>\\d{2})\\s-\\s(?<name>.+)$',
   },
-  media_folders: [],
+  categories: [],
   primary_extension: ['.mp3', '.flac'],
   audio_extensions: ['.m4b', '.mp3', '.aac', '.m4a', '.flac'],
   // Audiobook sidecars — NFO metadata, cover art, cuesheets, PDF booklets.

@@ -21,8 +21,9 @@
 import fs from 'fs'
 import path from 'path'
 
-import { MovieOutput, ShowOutput, WarningCollector, WarningsOutput } from '../core/types'
+import { MovieOutput, ShowOutput, WarningCollector } from '../core/types'
 import { loadRules } from '../core/rules/loader'
+import { parseRunnerArgs, writeJsonOutput, writeWarningsOutput } from '../core/runner-shared'
 
 import { MoviesRulesSchema, defaultMoviesRules } from '../core/rules/movies'
 import { ShowsRulesSchema, defaultShowsRules } from '../core/rules/shows'
@@ -41,28 +42,6 @@ import { ResolvedSearch, TmdbMovieDetails, TmdbShowDetails, SEARCH_CACHE_VERSION
 const SCRIPT_DIR = path.join(__dirname, '..', '..')
 const OUTPUT_DIR = path.join(SCRIPT_DIR, 'output')
 const CACHE_DIR = path.join(SCRIPT_DIR, 'cache')
-
-// ─────────────────────────────────────────────
-// Output writers
-// ─────────────────────────────────────────────
-
-function writeJson(outputPath: string, data: unknown): void {
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true })
-  fs.writeFileSync(outputPath, JSON.stringify(data, null, 2), 'utf-8')
-  const count = Array.isArray(data) ? data.length : 0
-  console.log(`    [OUT] ${outputPath}  (${count} entries)`)
-}
-
-function writeWarnings(outputPath: string, warnings: WarningCollector): void {
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true })
-  const out: WarningsOutput = {
-    generated: new Date().toISOString(),
-    count: warnings.count(),
-    files: warnings.all(),
-  }
-  fs.writeFileSync(outputPath, JSON.stringify(out, null, 2), 'utf-8')
-  console.log(`    [OUT] ${outputPath}  (${warnings.count()} warnings)`)
-}
 
 // ─────────────────────────────────────────────
 // Scan-output readers
@@ -140,8 +119,8 @@ async function runMovies(client: TmdbClient): Promise<void> {
 
   console.log('\n  Writing output...')
   const outDir = path.join(OUTPUT_DIR, 'movies')
-  writeJson(path.join(outDir, 'validation.json'), data)
-  writeWarnings(path.join(outDir, 'validation-warnings.json'), warnings)
+  writeJsonOutput(path.join(outDir, 'validation.json'), data)
+  writeWarningsOutput(path.join(outDir, 'validation-warnings.json'), warnings)
 
   searchCache.save()
   detailsCache.save()
@@ -198,8 +177,8 @@ async function runShows(client: TmdbClient): Promise<void> {
 
   console.log('\n  Writing output...')
   const outDir = path.join(OUTPUT_DIR, 'shows')
-  writeJson(path.join(outDir, 'validation.json'), data)
-  writeWarnings(path.join(outDir, 'validation-warnings.json'), warnings)
+  writeJsonOutput(path.join(outDir, 'validation.json'), data)
+  writeWarningsOutput(path.join(outDir, 'validation-warnings.json'), warnings)
 
   searchCache.save()
   detailsCache.save()
@@ -229,39 +208,31 @@ function printHelp(): void {
   `)
 }
 
+// Only movies and shows have a validate pass — music and audiobooks aren't
+// in TMDB. This is intentional, not a TODO.
+const VALIDATE_TYPES = ['movies', 'shows'] as const
+
 async function main(): Promise<void> {
-  const args = process.argv.slice(2)
-  const flag = args[0]
-  const value = args[1]
+  const parsed = parseRunnerArgs(VALIDATE_TYPES)
 
-  if (!flag) {
+  if (parsed.kind === 'help') {
     printHelp()
-    process.exit(1)
+    // Implicit help (no args) is conventionally an error for CLI scripts;
+    // explicit `--help` is a clean exit.
+    process.exit(parsed.explicit ? 0 : 1)
   }
 
-  if (flag === '--help' || flag === '-h') {
-    printHelp()
-    return
-  }
-
-  // Loading secrets here so a missing API key fails BEFORE any work.
+  // Load secrets here so a missing API key fails BEFORE any work.
   const secrets = loadSecrets(SCRIPT_DIR)
   const client = new TmdbClient(secrets.tmdb.api_key)
 
-  if (flag === '--all') {
+  if (parsed.kind === 'all') {
     await runMovies(client)
     await runShows(client)
-  } else if (flag === '--type') {
-    if (value === 'movies') await runMovies(client)
-    else if (value === 'shows') await runShows(client)
-    else {
-      console.error(`\n  Error: invalid type '${value ?? ''}'. Choices: movies, shows`)
-      process.exit(1)
-    }
+  } else if (parsed.type === 'movies') {
+    await runMovies(client)
   } else {
-    console.error(`\n  Error: unknown flag '${flag}'`)
-    printHelp()
-    process.exit(1)
+    await runShows(client)
   }
 
   console.log()

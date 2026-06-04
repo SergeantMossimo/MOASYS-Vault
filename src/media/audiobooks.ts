@@ -31,7 +31,9 @@ import {
 import { hasExtension, isPrimary, formatPrimaryExts, findUnexpectedEntries } from '../core/files'
 import { findNumericGaps } from '../core/gaps'
 import { AudiobooksRules } from '../core/rules/audiobooks'
-import { compilePattern, resolveMediaFolders } from '../core/rules/helpers'
+import { compilePattern, resolveCategories } from '../core/rules/helpers'
+import { finalizeVersions, distinctCategories } from '../core/versions'
+import { ProbeData } from '../probe/types'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -95,18 +97,19 @@ export function createAudiobooksModule(
   const multiDiscRegex = compilePattern(rules.patterns.multi_disc)
   const singleDiscRegex = compilePattern(rules.patterns.single_disc)
 
-  const effectiveMediaFolders = resolveMediaFolders(rules.media_folders)
-  const mediaTypeOrder = effectiveMediaFolders.map(mf => mf.tag)
+  const effectiveCategories = resolveCategories(rules.categories)
+  const categoryOrder = effectiveCategories.map(c => c.name)
 
   return {
-    getMediaFolders: () => effectiveMediaFolders,
+    getCategories: () => effectiveCategories,
 
-    scanMediaFolder(
+    scanCategory(
       folderPath: string,
       folderName: string,
-      tag: string,
+      category: string,
       config: AudiobooksConfig,
-      warnings: WarningCollector
+      warnings: WarningCollector,
+      _probeByPath: Map<string, ProbeData>
     ): Map<string, BookRecord> {
       const records = new Map<string, BookRecord>()
 
@@ -304,7 +307,7 @@ export function createAudiobooksModule(
               title: bookEntry.name,
               authors,
               chapter_count: chapterCount,
-              media_type: new Set(),
+              versions: [],
             })
           } else {
             records.get(bookKey)!.chapter_count = Math.max(
@@ -313,7 +316,18 @@ export function createAudiobooksModule(
             )
           }
 
-          records.get(bookKey)!.media_type.add(tag)
+          // Codecs from audio file extensions — one Version per (category,
+          // codec) pair. Books with mixed formats (rare but possible: an
+          // Audible m4b + a Book On CD mp3 set) end up with multiple
+          // entries. Deduped on serialize.
+          const codecs = new Set<string>()
+          for (const f of audioFiles) {
+            codecs.add(path.extname(f.name).slice(1).toUpperCase())
+          }
+          const book = records.get(bookKey)!
+          for (const codec of codecs) {
+            book.versions.push({ category, quality: codec })
+          }
         }
       }
 
@@ -326,36 +340,38 @@ export function createAudiobooksModule(
           existing.set(bookKey, newBook)
         } else {
           const existingBook = existing.get(bookKey)!
-          for (const t of newBook.media_type) existingBook.media_type.add(t)
+          existingBook.versions.push(...newBook.versions)
           existingBook.chapter_count = Math.max(existingBook.chapter_count, newBook.chapter_count)
         }
       }
     },
 
     serialize(records: Map<string, BookRecord>): BookOutput[] {
-      const orderMediaType = (mt: Set<string>) => mediaTypeOrder.filter(t => mt.has(t))
-
       return [...records.values()]
         .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()))
         .map(book => ({
           title: book.title,
           authors: book.authors,
           chapter_count: book.chapter_count,
-          media_type: orderMediaType(book.media_type),
+          versions: finalizeVersions(book.versions, categoryOrder),
         }))
     },
 
     /**
      * Post-merge check: emit one warning per book that ended up in multiple
-     * media folders. Runs once after all folders are scanned.
+     * categories. Runs once after all folders are scanned.
      */
     postScan(records: Map<string, BookRecord>, warnings: WarningCollector): void {
       if (!rules.checks.warn_duplicate_book) return
 
       for (const book of records.values()) {
-        if (book.media_type.size <= 1) continue
-        const tags = mediaTypeOrder.filter(t => book.media_type.has(t)).join(', ')
-        warnings.add(book.title, `Duplicate book found in multiple media folders: ${tags}`)
+        const cats = distinctCategories(book.versions)
+        if (cats.length <= 1) continue
+        const ordered = categoryOrder.filter(c => cats.includes(c))
+        warnings.add(
+          book.title,
+          `Duplicate book found in multiple categories: ${ordered.join(', ')}`
+        )
       }
     },
   }

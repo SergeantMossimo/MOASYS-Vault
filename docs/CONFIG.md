@@ -28,47 +28,60 @@ One section per media type, each with one field:
 - **macOS:** `"/Volumes/Movies"`
 - **Linux:** `"/mnt/nas/Movies"`
 
-The scanner walks the subfolders defined in `rules/<type>.yaml` under `media_folders`, or — if `media_folders` is empty — walks `root_path` directly with a `"default"` tag.
+The scanner walks the subfolders defined in `rules/<type>.yaml` under `categories`, or — if `categories` is empty — walks `root_path` directly and labels every record's category as `"default"`.
 
 That's it for `config.json`. Everything else lives in `rules/<type>.yaml`.
 
 ---
 
-## `rules/<type>.yaml`
+## Rules: `rules/<type>.yaml` and `rules/<type>.local.yaml`
 
-Each media type has one file at `rules/<type>.yaml`. Every available option is present in the file as a commented block; uncomment a line to override the code default. The shipped file shows the defaults verbatim so you can see what you'd be overriding.
+Each media type has up to two files:
 
 ```text
 rules/
-├── movies.yaml
+├── movies.yaml             ← committed defaults (every option visible, uncommented)
+├── movies.local.yaml       ← gitignored personal overrides (optional)
 ├── shows.yaml
+├── shows.local.yaml
 ├── music.yaml
-└── audiobooks.yaml
+├── music.local.yaml
+├── audiobooks.yaml
+└── audiobooks.local.yaml
 ```
 
-### How overrides work
+**`rules/<type>.yaml`** ships with every option set to the code default — fully visible, no comment-block tricks. Edit a value to change the project-wide default for this checkout. Comment a line out to fall back to whatever the current code default is (useful when you want to "ignore" a setting and let the code decide).
 
-1. Open `rules/<type>.yaml` for the media type you want to customize.
-2. Uncomment the keys you want to override. Anything that stays commented out keeps the code default.
-3. Run the scan. The console prints one of three messages so you can see at a glance whether your overrides took effect:
+**`rules/<type>.local.yaml`** is for personal library-specific overrides — your folder structure, your quality buckets, anything that wouldn't apply to a generic Plex library. This file is gitignored so it never gets committed.
 
-   ```text
-   [RULES] Loaded 2 override(s) from rules/shows.yaml
-   [RULES] Using code defaults (rules/music.yaml has no active overrides)
-   [RULES] Using code defaults (no rules/audiobooks.yaml)
-   ```
+### How the loader merges them
+
+Top to bottom, each layer wins over the one above:
+
+```text
+code defaults  →  rules/<type>.yaml  →  rules/<type>.local.yaml  →  Zod-validated result
+```
+
+Boot-time logs make it clear which files contributed:
+
+```text
+[RULES] Loaded rules/movies.yaml + 3 override(s) from rules/movies.local.yaml
+[RULES] Loaded rules/shows.yaml (no local overrides)
+[RULES] Using code defaults (no rules/audiobooks.yaml found)
+```
 
 ### What's configurable
 
-- **`media_folders`** — list of `{ name, tag }` pairs for subfolders under `root_path` to scan. The `name` is the literal folder name on disk; the `tag` is the label used in output (and referenced by `quality_thresholds` below). Leave empty (or commented) to scan `root_path` directly with a `"default"` tag — useful for flat libraries without quality buckets.
+- **`categories`** — list of `{ name }` entries for subfolders under `root_path` to scan. The `name` is both the literal folder name on disk AND the label that appears in each version's `category` field. Leave empty (or commented) to scan `root_path` directly and label everything `"default"` — useful for flat libraries.
 - **`patterns`** — regex with named capture groups for parsing folder and file names. Each pattern can be a plain string or `{ pattern, flags }` for case-insensitive or other regex flags.
 - **`primary_extension`** — the formats you expect for this media type. Files with any other extension trigger `warn_non_primary` (so you can spot ones that need re-encoding).
 - **`video_extensions` / `audio_extensions`** — every extension the scanner recognizes as that media type. Anything outside this list AND outside `sidecar_extensions` triggers `warn_unexpected_entries`.
 - **`sidecar_extensions`** — file extensions silently allowed alongside media (Plex NFO, posters, subtitles for video; cover art, lyrics, PDF booklets for audio).
 - **Per-type constants:**
-  - Movies — `year_range` (min/max plausible film year, `max: current` resolves to this year), `acceptable_quality_combos` (cross-folder pairings that shouldn't warn), `quality_thresholds` (ffprobe-driven pixel-range buckets per folder tag).
+  - Movies — `year_range` (min/max plausible film year, `max: current` resolves to this year), `acceptable_quality_combos` (cross-category pairings that shouldn't warn), `quality_thresholds` (pixel-range buckets keyed by category name).
   - Shows — `ignored_season_names` (Plex special-season folders to accept, e.g. `Specials`), `quality_thresholds`.
   - Music and audiobooks — patterns and extensions only (no extra constants).
+- **`quality_thresholds`** (movies + shows) — each bucket's `name` must match a category name to take effect. A file's `quality` is the bucket whose dimension range contains its long edge; if its category also matches a bucket name (e.g. a file in the `UHD` category) and the derived quality differs from the category, `warn_quality_mismatch` fires. Buckets named `Other UHD` etc. would match nothing in a typical setup, so categories like `Other UHD` are silently passed.
 - **`checks`** — per-warning toggles. Set any `warn_*` field to `false` to silence that warning without changing code.
 
 ### Validation

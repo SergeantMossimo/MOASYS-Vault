@@ -14,7 +14,7 @@ MOASYS-Vault expects libraries to follow Plex's documented folder and file namin
 **Hierarchy:**
 
 ```text
-<media_folder>/
+<category>/
 └── <Movie Title (YEAR)>/
     ├── <Movie Title (YEAR)>.<ext>
     └── <Movie Title (YEAR)> {edition-<Edition Name>}.<ext>
@@ -44,7 +44,7 @@ UHD/
 - File title must match the parent folder's title (case-insensitive) — a mismatch is flagged
 - Empty `{edition-}` tags (no value after the dash) are flagged
 - Two files in the same folder claiming the same edition are flagged as duplicates
-- Same movie appearing in multiple quality folders is flagged unless that combination is listed in `acceptable_quality_combos`
+- Same movie appearing in multiple categories is flagged unless that combination is listed in `acceptable_quality_combos`
 - Subfolders inside a movie folder are not scanned — any video files inside are dropped from the catalog (flagged as `warn_extra_subfolders`)
 
 ---
@@ -54,7 +54,7 @@ UHD/
 **Hierarchy:**
 
 ```text
-<media_folder>/
+<category>/
 └── <Show Title (YEAR)>/
     ├── Season 01/
     │   ├── <Show Title (YEAR)> - S01E01 - <Episode Title>.<ext>
@@ -124,7 +124,7 @@ Music conventions come directly from Plex's docs. Quoting verbatim:
 **Hierarchy:**
 
 ```text
-<media_folder>/
+<category>/
 └── <Artist Name>/
     └── <Album Name>/
         ├── 01 - Track Name.<ext>           ← single-disc
@@ -179,8 +179,8 @@ Soundtracks/
 
 - The scanner doesn't recurse into subfolders within an album — multi-disc albums must use the flat disc-prefixed convention (`101`, `201`, etc.)
 - Trailing whitespace in artist/album folder names silently fragments your Plex library — these are now flagged via `warn_suspicious_folder_chars`
-- Track files placed loose in a media folder OR in an artist folder (no album wrapper) are skipped — flagged via `warn_loose_files`
-- Same album in multiple media folders is flagged as a duplicate
+- Track files placed loose in a category folder OR in an artist folder (no album wrapper) are skipped — flagged via `warn_loose_files`
+- Same album in multiple categories is flagged as a duplicate
 - Track numbers must be zero-padded to 2 digits (`01`, not `1`)
 - The disc number prefix is greedy: `100 - Track` parses as disc 1, track 00 (because multi-disc is tried first)
 
@@ -193,7 +193,7 @@ MOASYS-Vault uses an Author / Book / chapter structure that mirrors music's Arti
 **Hierarchy:**
 
 ```text
-<media_folder>/
+<category>/
 └── <Author Name>/                          ← single author
     └── <Book Title>/
         ├── 01 - Chapter Name.<ext>
@@ -236,6 +236,6 @@ Book On CD/
 **Gotchas:**
 
 - Books are keyed by **title only** — the same title by different authors collides in the catalog. Intentional, but worth knowing
-- Same book in multiple media folders (e.g. both Audible and Book On CD) is flagged as a duplicate
+- Same book in multiple categories (e.g. both Audible and Book On CD) is flagged as a duplicate
 - Quality (codec, bitrate) is collected during the probe pass but no `quality_mismatch` warning fires — spoken word at modest bitrates is fine
 - The same flat / disc-prefixed convention applies for multi-disc books — no per-disc subfolders
