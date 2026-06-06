@@ -1,12 +1,32 @@
 /**
  * core/files.ts
  * -------------
- * Shared helpers for classifying media files by extension.
+ * Shared helpers for classifying media files by extension and sanitizing
+ * filename strings for cross-platform safety.
  * Used by every media module so extension logic lives in exactly one place.
  */
 
 import fs from 'fs'
 import path from 'path'
+
+/**
+ * Strip Windows-illegal filename characters (`< > : " | ? * \ /`) from a
+ * string without replacement. Used in two distinct places:
+ *
+ *   1. TMDB validation — derive a copy-pasteable rename target when TMDB's
+ *      canonical title contains chars the user can't put in a folder name
+ *      (`"3:10 to Yuma"` → `"310 to Yuma"`).
+ *   2. Music ID3 comparison — when a track's `AlbumArtist` tag is `AC/DC`
+ *      but the folder must be `ACDC` (slash isn't legal in folder names),
+ *      both forms should compare equal.
+ *
+ * Diacritics are left alone (they're legal in filenames); only the strict
+ * Windows-illegal set is removed. No replacement character is substituted —
+ * this matches how users typically name their folders in practice.
+ */
+export function stripFilenameIllegalChars(s: string): string {
+  return s.replace(/[<>:"|?*\\/]/g, '')
+}
 
 /** True if the filename's extension is in the provided list (case-insensitive). */
 export function hasExtension(filename: string, extensions: string[]): boolean {

@@ -245,12 +245,27 @@ export interface MediaModule<TRecord, TOutput, TConfig extends BaseMediaConfig> 
  * Accumulates warning messages during a scan.
  * Passed into each media module so warnings can be added from anywhere
  * in the scanning process and written to warnings.json at the end.
+ *
+ * If constructed with `ignoredPaths`, any warning whose `path` matches an
+ * ignore prefix (see `core/ignored.ts`) is silently dropped — the user's
+ * way of permanently silencing warnings they can't or don't want to fix.
+ * Silenced warnings are still counted via `silencedCount()` so the runner
+ * can surface "N silenced" in its summary.
  */
+import { isPathIgnored } from './ignored'
+
 export class WarningCollector {
   private warnings: Warning[] = []
+  private silenced = 0
+
+  constructor(private ignoredPaths: string[] = []) {}
 
   /** Add a warning. path and issue are required; extension is optional. */
   add(path: string, issue: string, extension?: string): void {
+    if (isPathIgnored(path, this.ignoredPaths)) {
+      this.silenced++
+      return
+    }
     const entry: Warning = { path, issue }
     if (extension !== undefined) entry.extension = extension
     this.warnings.push(entry)
@@ -261,8 +276,13 @@ export class WarningCollector {
     return [...this.warnings]
   }
 
-  /** Return the total number of warnings collected */
+  /** Return the total number of warnings collected (excludes silenced). */
   count(): number {
     return this.warnings.length
+  }
+
+  /** Return the number of warnings silenced by the ignore list. */
+  silencedCount(): number {
+    return this.silenced
   }
 }

@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MOASYS-Vault — Movies ignore list (EXAMPLE / REFERENCE FILE)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Copy this file to `ignored/movies.yaml` (drop the `.example` suffix) and
+# uncomment / edit entries below as needed. The real `movies.yaml` is
+# gitignored so personal library decisions don't leak into the repo.
+#
+# Each entry is a path prefix. Any movies-pass warning whose `path` field
+# starts with one of these (followed by `/` or end-of-string,
+# case-insensitive, separator-normalized) gets silently dropped from
+# `output/movies/warnings.json` (and counted in the run summary).
+#
+# Get paths from `output/movies/warnings.json` and `output/movies/validation-warnings.json`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Silence everything under a category ─────────────────────────────────────
+# Useful for "Other UHD" / "Other HD" / "Other SD" categories you keep but
+# don't actively curate.
+# - Other UHD
+# - Other SD
+
+# ── Silence a single movie ──────────────────────────────────────────────────
+# Drops every warning whose path is inside this movie's folder (quality
+# mismatch, TMDB no-match, naming warnings, etc.).
+# - UHD/Some Movie (2020)
+# - HD/Old Concert Film (1985)
+
+# ── Silence a specific file ─────────────────────────────────────────────────
+# Pin-point: just one file path. Useful when a specific edition has a
+# legitimate warning you've decided to accept.
+# - UHD/Blade Runner (1982)/Blade Runner (1982) {edition-Final Cut}.mp4

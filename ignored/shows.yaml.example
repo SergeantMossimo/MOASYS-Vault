@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MOASYS-Vault — Shows ignore list (EXAMPLE / REFERENCE FILE)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Copy this file to `ignored/shows.yaml` (drop the `.example` suffix) and
+# uncomment / edit entries below as needed. The real `shows.yaml` is
+# gitignored so personal library decisions don't leak into the repo.
+#
+# Each entry is a path prefix. Any shows-pass warning whose `path` field
+# starts with one of these (followed by `/` or end-of-string,
+# case-insensitive, separator-normalized) gets silently dropped from
+# `output/shows/warnings.json` (and counted in the run summary).
+#
+# Get paths from `output/shows/warnings.json` and `output/shows/validation-warnings.json`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Silence whole shows you can't fix ───────────────────────────────────────
+# When a show has known missing episodes (never released on the format,
+# culled by the rights holder, etc.) and you don't want to see the
+# `warn_episode_gaps` / `warn_tmdb_episode_count` noise every run.
+# - HD/Channel 4 Catchup (2024)
+# - HD/Some Reality Show (2020)
+
+# ── Silence one season ──────────────────────────────────────────────────────
+# Keeps the rest of the show's warnings live, but drops everything under
+# this specific season folder.
+# - HD/Some Show (2020)/Season 2
+# - UHD/Star Trek Enterprise (2001)/Season 4
+
+# ── Silence a single episode ────────────────────────────────────────────────
+# Pin-point: just one file path. Useful when one episode has a legitimate
+# quality outlier you've decided to accept.
+# - HD/Some Show (2020)/Season 1/Some Show (2020) - S01E05.mp4
+
+# ── Silence by category ─────────────────────────────────────────────────────
+# Drop ALL warnings under a category folder.
+# - Other HD
+# - Other SD

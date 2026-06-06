@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MOASYS-Vault — Music ignore list (EXAMPLE / REFERENCE FILE)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Copy this file to `ignored/music.yaml` (drop the `.example` suffix) and
+# uncomment / edit entries below as needed. The real `music.yaml` is
+# gitignored so personal library decisions don't leak into the repo.
+#
+# Each entry is a path prefix. Any music-pass warning whose `path` field
+# starts with one of these (followed by `/` or end-of-string,
+# case-insensitive, separator-normalized) gets silently dropped from
+# `output/music/warnings.json` (and counted in the run summary).
+#
+# Get paths from `output/music/warnings.json`. Most music warnings use the
+# `<Artist>/<Album>` path shape.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Silence a whole artist ──────────────────────────────────────────────────
+# Useful when an artist's whole catalog has a known issue you've decided
+# to keep (e.g. a folder/tag mismatch you can't fix because the tag is set
+# by the original publisher).
+# - Some Artist
+# - Various Artists
+
+# ── Silence one album ───────────────────────────────────────────────────────
+# Drops every warning under this album folder (compilation_detected,
+# folder_tag_mismatch, missing_tags, track_number_mismatch, etc.).
+# - Pink Floyd/The Wall
+# - 2Pac/All Eyez on Me
+
+# ── Silence a single track ──────────────────────────────────────────────────
+# Pin-point: just one file path.
+# - Pink Floyd/The Wall/01 - In the Flesh.flac
+
+# ── Silence by category ─────────────────────────────────────────────────────
+# Drop ALL warnings under a category folder.
+# - Other Music
+# - Other Soundtracks

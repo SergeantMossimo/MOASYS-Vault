@@ -21,6 +21,7 @@ import { AppConfig, BaseMediaConfig, MediaModule, WarningCollector } from './cor
 import { loadConfig } from './core/config'
 import { scan, writeJson, writeWarnings } from './core/scanner'
 import { loadRules } from './core/rules/loader'
+import { loadIgnoredPaths } from './core/ignored'
 import { parseRunnerArgs, writeJsonOutput } from './core/runner-shared'
 
 import { createMoviesModule } from './media/movies'
@@ -106,6 +107,8 @@ interface MediaTypeEntry<TRecord, TOutput, TConfig extends BaseMediaConfig> {
   outputDir: string
   cachePath: string
   label: string
+  /** Path prefixes loaded from rules/<type>.ignored.yaml — silences warnings. */
+  ignoredPaths: string[]
   probe: (
     config: TConfig,
     cache: ProbeCache,
@@ -136,6 +139,7 @@ const MEDIA_TYPES = {
     outputDir: path.join(OUTPUT_DIR, 'movies'),
     cachePath: path.join(CACHE_DIR, 'movies-probe.json'),
     label: 'Movies',
+    ignoredPaths: loadIgnoredPaths(SCRIPT_DIR, 'movies'),
     probe: (cfg, cache, warnings) => probeMovies(cfg, moviesRules, cache, warnings),
   }),
   shows: makeEntry({
@@ -144,6 +148,7 @@ const MEDIA_TYPES = {
     outputDir: path.join(OUTPUT_DIR, 'shows'),
     cachePath: path.join(CACHE_DIR, 'shows-probe.json'),
     label: 'Shows',
+    ignoredPaths: loadIgnoredPaths(SCRIPT_DIR, 'shows'),
     probe: (cfg, cache, warnings) => probeShows(cfg, showsRules, cache, warnings),
   }),
   music: makeEntry({
@@ -152,6 +157,7 @@ const MEDIA_TYPES = {
     outputDir: path.join(OUTPUT_DIR, 'music'),
     cachePath: path.join(CACHE_DIR, 'music-probe.json'),
     label: 'Music',
+    ignoredPaths: loadIgnoredPaths(SCRIPT_DIR, 'music'),
     probe: (cfg, cache, warnings) => probeMusic(cfg, musicRules, cache, warnings),
   }),
   audiobooks: makeEntry({
@@ -160,6 +166,7 @@ const MEDIA_TYPES = {
     outputDir: path.join(OUTPUT_DIR, 'audiobooks'),
     cachePath: path.join(CACHE_DIR, 'audiobooks-probe.json'),
     label: 'Audiobooks',
+    ignoredPaths: loadIgnoredPaths(SCRIPT_DIR, 'audiobooks'),
     probe: (cfg, cache, warnings) => probeAudiobooks(cfg, audiobooksRules, cache, warnings),
   }),
 }
@@ -198,8 +205,10 @@ async function runType<TRecord, TOutput, TConfig extends BaseMediaConfig>(
 
   // A single WarningCollector is shared across both passes so warnings.json
   // collects everything — naming hygiene from scan, quality / ID3 issues from
-  // probe — in one file.
-  const warnings = new WarningCollector()
+  // probe — in one file. Constructed with the type's ignored paths so any
+  // warning whose path matches an entry in rules/<type>.ignored.yaml is
+  // silently dropped (still counted via warnings.silencedCount()).
+  const warnings = new WarningCollector(entry.ignoredPaths)
 
   // ── Probe pass ────────────────────────────────────────────────────────
   const cache = new ProbeCache(entry.cachePath)
@@ -225,7 +234,9 @@ async function runType<TRecord, TOutput, TConfig extends BaseMediaConfig>(
   cache.save()
   console.log(`    [CACHE] ${cache.size()} entries saved to ${entry.cachePath}`)
 
-  console.log(`\n  Done — ${records.size} entries, ${warnings.count()} warnings.`)
+  const silenced = warnings.silencedCount()
+  const silencedSummary = silenced > 0 ? `, ${silenced} silenced via ignore list` : ''
+  console.log(`\n  Done — ${records.size} entries, ${warnings.count()} warnings${silencedSummary}.`)
   if (warnings.count() > 0) {
     console.log(`  → Review output/${mediaType}/warnings.json for files needing attention.`)
   }

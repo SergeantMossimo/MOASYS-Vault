@@ -98,13 +98,54 @@ The defaults live in code at `src/core/rules/<type>.ts` alongside the schema, so
 
 ---
 
+## `ignored/<type>.yaml` — silencing specific warnings
+
+For warnings you can't or don't want to fix (an incomplete season that never aired, a folder name you've decided not to change), drop a per-type ignore file in the `ignored/` folder. It's a flat list of path prefixes — any warning whose `path` matches one is silently dropped from `warnings.json` and counted in the run summary.
+
+```text
+ignored/
+├── movies.yaml.example         ← committed, reference (commented examples)
+├── movies.yaml                 ← gitignored, what the user actually writes
+├── shows.yaml.example
+├── shows.yaml
+├── music.yaml.example
+├── music.yaml
+├── audiobooks.yaml.example
+└── audiobooks.yaml
+```
+
+Each `.yaml.example` ships with commented usage patterns. To use: copy it to `<type>.yaml` (drop the `.example` suffix) and uncomment / edit the entries you need.
+
+```yaml
+# ignored/shows.yaml — gitignored, per-user
+- HD/Channel 4 Catchup (2024) # silences every warning under this show
+- HD/Some Show (2020)/Season 2 # silences just one season
+- SD/Old VHS Rip (1995)
+```
+
+Matching rules:
+
+- **Prefix-based**: an entry like `HD/Show (2020)` silences `HD/Show (2020)` itself plus everything under it (`HD/Show (2020)/Season 1`, `HD/Show (2020)/Season 1/file.mp4`).
+- **Path-boundary respected**: `HD/Show` does _not_ silence `HD/Show 2 (2020)` — the prefix has to be followed by `/` or be an exact match.
+- **Case-insensitive + separator-normalized**: `HD/Show` matches both `HD/Show/...` and `hd\show\...`, so the same file works on Windows and macOS/Linux.
+
+Get path values from `output/<type>/warnings.json` (and `validation-warnings.json` for movies/shows). The `<type>.yaml` files are **gitignored** since they encode per-library decisions that don't belong in the shared repo. Missing or comments-only files are treated as "no ignores."
+
+The run summary surfaces how many warnings were silenced:
+
+```text
+Done — 131 entries, 18 warnings, 5 silenced via ignore list.
+```
+
+---
+
 ## `.secrets.json`
 
 The TMDB validation pass ([docs/SCANS.md](SCANS.md)) needs an API key. It lives in `.secrets.json` at the project root, gitignored.
 
 To set it up:
 
-1. Get a free v3 API key from https://www.themoviedb.org/settings/api
+1. Get a free v3 API key from <https://www.themoviedb.org/settings/api>
 2. Copy the template: `cp .secrets.json.example .secrets.json`
 3. Paste your key into the `tmdb.api_key` field
 
