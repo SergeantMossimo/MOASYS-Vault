@@ -234,6 +234,53 @@ describe('probeMusic', () => {
     expect(warnings.all().some(w => w.issue.match(/Folder\/tag mismatch.*album/i))).toBe(true)
   })
 
+  it('does NOT fire folder/tag mismatch when tag has illegal chars matching folder', async () => {
+    // ID3 tag "AC/DC" must be folder "ACDC" (slash is filename-illegal).
+    // After stripping illegal chars, both match — no warning should fire.
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          ACDC: {
+            'Back in Black': { '01 - One.flac': '' },
+          },
+        },
+      },
+      probes: {
+        'Music/ACDC/Back in Black/01 - One.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({ album_artist: 'AC/DC', album: 'Back in Black' }),
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/Folder\/tag mismatch/i))).toBe(false)
+  })
+
+  it('suggests the filename-safe form in the recommended fix when tag has illegal chars', async () => {
+    // Tag "Friends:" (colon is illegal) → suggested folder is "Friends" not "Friends:".
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          'Bad Folder': {
+            'Some Album': { '01 - One.flac': '' },
+          },
+        },
+      },
+      probes: {
+        'Music/Bad Folder/Some Album/01 - One.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({ album_artist: 'Friends:', album: 'Some Album' }),
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    const mismatch = warnings.all().find(w => w.issue.match(/Folder\/tag mismatch.*artist/i))
+    expect(mismatch?.issue).toContain("rename folder to 'Friends'") // no colon
+    expect(mismatch?.issue).not.toContain("rename folder to 'Friends:'")
+  })
+
   it('emits warn_missing_tags when required tag fields are blank', async () => {
     const { rules, root, cache, warnings } = setup({
       spec: {

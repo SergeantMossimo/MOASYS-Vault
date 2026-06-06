@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MOASYS-Vault — Audiobooks ignore list (EXAMPLE / REFERENCE FILE)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Copy this file to `ignored/audiobooks.yaml` (drop the `.example` suffix)
+# and uncomment / edit entries below as needed. The real `audiobooks.yaml`
+# is gitignored so personal library decisions don't leak into the repo.
+#
+# Each entry is a path prefix. Any audiobooks-pass warning whose `path`
+# field starts with one of these (followed by `/` or end-of-string,
+# case-insensitive, separator-normalized) gets silently dropped from
+# `output/audiobooks/warnings.json` (and counted in the run summary).
+#
+# Get paths from `output/audiobooks/warnings.json`. Most audiobook warnings
+# use the `<Author>/<Book>` path shape.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Silence a single book ───────────────────────────────────────────────────
+# Drops every warning under this book's folder. Useful for a book with
+# known missing chapters or a chapter naming inconsistency you've decided
+# to keep.
+# - J.R.R. Tolkien/The Lord of the Rings
+# - Terry Pratchett/Discworld 41
+
+# ── Silence by category ─────────────────────────────────────────────────────
+# Drop ALL warnings under a category folder.
+# - Other Audible
+# - Book On CD
+
+# ── Silence a whole author ──────────────────────────────────────────────────
+# Rare — usually only when you have a single author's catalog where every
+# book has the same recurring issue.
+# - Some Author

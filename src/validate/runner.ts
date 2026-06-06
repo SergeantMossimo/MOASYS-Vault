@@ -23,6 +23,7 @@ import path from 'path'
 
 import { MovieOutput, ShowOutput, WarningCollector } from '../core/types'
 import { loadRules } from '../core/rules/loader'
+import { loadIgnoredPaths } from '../core/ignored'
 import { parseRunnerArgs, writeJsonOutput, writeWarningsOutput } from '../core/runner-shared'
 
 import { MoviesRulesSchema, defaultMoviesRules } from '../core/rules/movies'
@@ -101,7 +102,7 @@ async function runMovies(client: TmdbClient): Promise<void> {
     `    [CACHE] ${searchCache.size()} search entries, ${detailsCache.size()} movie-details entries`
   )
 
-  const warnings = new WarningCollector()
+  const warnings = new WarningCollector(loadIgnoredPaths(SCRIPT_DIR, 'movies'))
 
   const data = await validateMovies(
     movies,
@@ -125,8 +126,10 @@ async function runMovies(client: TmdbClient): Promise<void> {
   searchCache.save()
   detailsCache.save()
 
+  const silenced = warnings.silencedCount()
+  const silencedSummary = silenced > 0 ? `, ${silenced} silenced via ignore list` : ''
   console.log(
-    `\n  Done — ${warnings.count()} validation warnings. ${client.totalRequests} TMDB requests.`
+    `\n  Done — ${warnings.count()} validation warnings${silencedSummary}. ${client.totalRequests} TMDB requests.`
   )
   if (warnings.count() > 0) {
     console.log(`  → Review output/movies/validation-warnings.json`)
@@ -159,7 +162,7 @@ async function runShows(client: TmdbClient): Promise<void> {
     `    [CACHE] ${searchCache.size()} search entries, ${detailsCache.size()} show-details entries`
   )
 
-  const warnings = new WarningCollector()
+  const warnings = new WarningCollector(loadIgnoredPaths(SCRIPT_DIR, 'shows'))
 
   const data = await validateShows(
     shows,
@@ -183,8 +186,10 @@ async function runShows(client: TmdbClient): Promise<void> {
   searchCache.save()
   detailsCache.save()
 
+  const silenced = warnings.silencedCount()
+  const silencedSummary = silenced > 0 ? `, ${silenced} silenced via ignore list` : ''
   console.log(
-    `\n  Done — ${warnings.count()} validation warnings. ${client.totalRequests} TMDB requests.`
+    `\n  Done — ${warnings.count()} validation warnings${silencedSummary}. ${client.totalRequests} TMDB requests.`
   )
   if (warnings.count() > 0) {
     console.log(`  → Review output/shows/validation-warnings.json`)

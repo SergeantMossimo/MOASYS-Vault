@@ -144,7 +144,8 @@ MOASYS-Vault/
 │   ├── probe/                        ← per-type ffprobe + ID3 logic
 │   └── validate/                     ← per-type TMDB validation logic
 ├── docs/                             ← deep-dive documentation
-├── rules/                            ← user-editable rule overrides (defaults committed)
+├── rules/                            ← schemas + defaults committed, *.local.yaml gitignored
+├── ignored/                          ← per-type warning silencer (*.yaml.example committed, *.yaml gitignored)
 ├── output/                           ← generated catalog + warnings (gitignored)
 ├── cache/                            ← probe + TMDB caches (gitignored)
 ├── config.json                       ← your library paths
@@ -171,18 +172,6 @@ npm run lint:fix         # Auto-fix where possible
 npm run prettier         # Format check
 npm run prettier:fix     # Format write
 ```
-
----
-
-## Roadmap
-
-All major roadmap items are shipped. Future work lives in per-file TODO comments (if any) or here:
-
-### Shipped
-
-- **Music quality summary** — derived per-album `audio_quality_summary` in `output/music/probe.json` (`"FLAC 16/44.1"`, `"MP3 ~288"`, etc.) with VBR tolerance and a `warn_quality_inconsistent` warning for cross-codec or wide-spread albums.
-- **ID3 tag reading for music** — `output/music/probe.json` includes per-track `tags` read via [`music-metadata`](https://www.npmjs.com/package/music-metadata). Four new warnings: `warn_compilation_detected`, `warn_folder_tag_mismatch`, `warn_missing_tags`, `warn_track_number_mismatch`. Closes the "single-composer vs Various Artists" question.
-- **TMDB validation for movies and shows** — `npm run validate:movies` / `validate:shows` cross-check the scan output against TheMovieDB. Per-record results in `output/<type>/validation.json` with TMDB IDs, canonical titles/years, and alternative candidates. Confidence-scored matching with strict normalization (only filename-illegal characters bridged automatically; diacritics kept distinct). Per-season episode-count comparison for shows catches incomplete seasons even when episode numbers have no gaps.
 
 ---
 

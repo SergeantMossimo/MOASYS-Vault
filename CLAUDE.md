@@ -49,6 +49,7 @@ code defaults  →  rules/<type>.yaml  →  rules/<type>.local.yaml  →  Zod-va
 - **Code defaults** live in `src/core/rules/<type>.ts` alongside the Zod schema. Neutral / universal — no library-specific values.
 - **`rules/<type>.yaml`** is the committed snapshot of code defaults, every option visible and uncommented. Edit to change project-wide defaults. Commit-friendly.
 - **`rules/<type>.local.yaml`** is the gitignored personal-overrides file. Library-specific values (extra categories, custom quality_thresholds, personal ignored_season_names) live here.
+- **`ignored/<type>.yaml`** (in its own `ignored/` folder, not `rules/`) is a flat list of path prefixes. The `WarningCollector` silently drops any warning whose `path` starts with one of these entries — the user's way of permanently silencing warnings they can't or don't want to fix. Loaded by `src/core/ignored.ts`. Each type also ships a committed `ignored/<type>.yaml.example` reference; the real `<type>.yaml` is gitignored.
 
 The loader (`src/core/rules/loader.ts`) deep-merges the layers, resolves the `'current'` sentinel for year ranges, validates with Zod, and prints boot-time messages distinguishing each layer:
 

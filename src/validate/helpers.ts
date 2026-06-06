@@ -3,33 +3,18 @@
  * -------------------
  * Shared helpers used by both movies and shows validation.
  *
- * These were duplicated verbatim across movies.ts and shows.ts during the
- * initial build — extracted here so any future tweaks to normalization or
- * year-parsing happen in exactly one place.
+ * `stripFilenameIllegalChars` lives in core/files.ts because the music
+ * tag-matching path also depends on it. Re-exported here so existing
+ * validate-side callsites keep working.
  */
 
-// ─────────────────────────────────────────────
-// Filename-safe normalization
-// ─────────────────────────────────────────────
+import { stripFilenameIllegalChars } from '../core/files'
 
-/**
- * Strip Windows-illegal filename characters from a string without replacement.
- * Used in two places:
- *   1. Matching normalization — both sides become equal when the user removed
- *      a slash/colon/asterisk that they couldn't have used in a folder name.
- *   2. Deriving `tmdb_title_filename_safe` for the output — gives the user a
- *      copy-pasteable rename target.
- *
- *   "50/50"           → "5050"
- *   "3:10 to Yuma"    → "310 to Yuma"
- *   "M*A*S*H"         → "MASH"
- *   "WALL·E"          → "WALL·E"  (middot is legal in filenames; left alone)
- *
- * Windows-illegal characters: `< > : " | ? * \ /`
- */
-export function stripFilenameIllegalChars(s: string): string {
-  return s.replace(/[<>:"|?*\\/]/g, '')
-}
+export { stripFilenameIllegalChars }
+
+// ─────────────────────────────────────────────
+// Title normalization
+// ─────────────────────────────────────────────
 
 /**
  * Normalize a title for matching against TMDB. Strict by design — only strips

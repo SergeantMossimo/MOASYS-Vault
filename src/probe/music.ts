@@ -16,6 +16,8 @@ import { hasExtension, isPrimary } from '../core/files'
 import { MusicRules } from '../core/rules/music'
 import { compilePattern, resolveCategories } from '../core/rules/helpers'
 
+import { stripFilenameIllegalChars } from '../core/files'
+
 import { ProbeCache } from './cache'
 import { ProbeTask, ProbedFile, probeBatch } from './helpers'
 import { readTags } from './id3'
@@ -287,9 +289,32 @@ export async function probeMusic(
 // Tag analysis (compilation, mismatch, missing, track-number)
 // ─────────────────────────────────────────────
 
-/** Case-insensitive trimmed match between a tag value and a folder name. */
+/**
+ * Match a tag value against a folder name, allowing for Windows-illegal
+ * characters in the tag that the user had to drop from the folder.
+ *
+ * Example: ID3 `AlbumArtist` is `AC/DC` but the folder is `ACDC` because
+ * forward slashes can't appear in folder names. We strip illegal chars
+ * from the tag side before comparing — the folder is the filename-safe
+ * form of the tag, and that's a legitimate match.
+ *
+ * Comparison is case-insensitive and trim-tolerant.
+ */
 function tagMatchesFolder(tagValue: string, folderName: string): boolean {
-  return tagValue.trim().toLowerCase() === folderName.trim().toLowerCase()
+  const tagSafe = stripFilenameIllegalChars(tagValue).trim().toLowerCase()
+  const folder = folderName.trim().toLowerCase()
+  return tagSafe === folder
+}
+
+/**
+ * Pick the form of a tag value the user could actually use as a folder name.
+ * For tags with no illegal characters this is just the tag itself; for tags
+ * like `AC/DC` it's the stripped `ACDC` form so the recommended-fix message
+ * doesn't tell the user to do something impossible.
+ */
+function suggestedFolderName(tagValue: string): string {
+  const safe = stripFilenameIllegalChars(tagValue)
+  return safe === tagValue ? tagValue : safe
 }
 
 /** Is this string the literal Plex "Various Artists" convention? */
@@ -377,7 +402,7 @@ function analyzeTags(
           warnings.add(
             albumPath,
             `Folder/tag mismatch: artist folder is '${artist.artist}' but AlbumArtist tag is '${tagValue}'. ` +
-              `Recommended fix: rename folder to '${tagValue}' (or update the tag if the folder is correct). ` +
+              `Recommended fix: rename folder to '${suggestedFolderName(tagValue)}' (or update the tag if the folder is correct). ` +
               `Without this, Plex may catalog the album under one name while users browse under the other.`
           )
         }
@@ -390,7 +415,7 @@ function analyzeTags(
           warnings.add(
             albumPath,
             `Folder/tag mismatch: album folder is '${album.album}' but Album tag is '${tagValue}'. ` +
-              `Recommended fix: rename folder to '${tagValue}' or update the tag.`
+              `Recommended fix: rename folder to '${suggestedFolderName(tagValue)}' or update the tag.`
           )
         }
       }

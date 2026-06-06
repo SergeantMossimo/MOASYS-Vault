@@ -186,6 +186,7 @@ describe('WarningCollector', () => {
     const wc = new WarningCollector()
     expect(wc.count()).toBe(0)
     expect(wc.all()).toEqual([])
+    expect(wc.silencedCount()).toBe(0)
   })
 
   it('adds a warning with path and issue', () => {
@@ -221,5 +222,30 @@ describe('WarningCollector', () => {
     wc.add('b', '2')
     wc.add('c', '3')
     expect(wc.all().map(w => w.path)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('silences warnings whose path matches an ignored prefix', () => {
+    const wc = new WarningCollector(['HD/Show (2020)'])
+    wc.add('HD/Show (2020)', 'bad')
+    wc.add('HD/Show (2020)/Season 1/file.mp4', 'also bad')
+    wc.add('HD/Other Show (2020)', 'visible')
+
+    expect(wc.count()).toBe(1)
+    expect(wc.all().map(w => w.path)).toEqual(['HD/Other Show (2020)'])
+    expect(wc.silencedCount()).toBe(2)
+  })
+
+  it('does not silence when ignoredPaths is empty (default)', () => {
+    const wc = new WarningCollector()
+    wc.add('any/path', 'x')
+    expect(wc.count()).toBe(1)
+    expect(wc.silencedCount()).toBe(0)
+  })
+
+  it('normalizes separators + case when matching ignored prefixes', () => {
+    const wc = new WarningCollector(['HD/Show (2020)'])
+    wc.add('hd\\show (2020)\\file.mp4', 'x')
+    expect(wc.count()).toBe(0)
+    expect(wc.silencedCount()).toBe(1)
   })
 })

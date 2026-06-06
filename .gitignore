@@ -21,6 +21,13 @@ cache/
 # extra categories) never end up in the repo.
 rules/*.local.yaml
 
+# ignored/<type>.yaml is the per-user ignore list — flat list of path
+# prefixes that silence warnings on specific files / folders / shows the
+# user can't or doesn't want to fix. The `.yaml.example` reference files
+# stay committed.
+ignored/*.yaml
+!ignored/*.yaml.example
+
 # Secrets — TMDB API key etc. NEVER commit this file.
 .secrets.json
 
