@@ -118,13 +118,21 @@ describe('movies module — happy paths', () => {
           'Beta (2020)': { 'Beta (2020).mp4': '' },
           'Alpha (1999)': { 'Alpha (1999).mp4': '' },
           'Alpha (2010)': { 'Alpha (2010).mp4': '' },
+          // Two same-title same-year movies that only differ by edition —
+          // exercises the tertiary sort by edition.
+          'Blade Runner (1982)': {
+            'Blade Runner (1982) {edition-Theatrical}.mp4': '',
+            'Blade Runner (1982) {edition-Final Cut}.mp4': '',
+          },
         },
       },
     })
-    expect(result.output.map(m => `${m.title}-${m.year}`)).toEqual([
-      'Alpha-1999',
-      'Alpha-2010',
-      'Beta-2020',
+    expect(result.output.map(m => `${m.title}-${m.year}-${m.edition ?? ''}`)).toEqual([
+      'Alpha-1999-',
+      'Alpha-2010-',
+      'Beta-2020-',
+      'Blade Runner-1982-Final Cut',
+      'Blade Runner-1982-Theatrical',
     ])
   })
 })
@@ -218,7 +226,7 @@ describe('movies module — warnings', () => {
     expect(result.warnings.some(w => w.issue.match(/Duplicate edition/))).toBe(true)
   })
 
-  it('warn_multi_quality: same movie in two categories not in acceptable_quality_combos', () => {
+  it('warn_multi_quality: same movie in two quality buckets not in acceptable_quality_combos', () => {
     const result = runMoviesScan({
       spec: {
         UHD: { 'X (2000)': { 'X (2000).mp4': '' } },
@@ -228,7 +236,7 @@ describe('movies module — warnings', () => {
         acceptable_quality_combos: [['UHD', 'HD']], // UHD/SD not acceptable
       },
     })
-    expect(result.warnings.some(w => w.issue.match(/Movie exists in multiple categories/))).toBe(
+    expect(result.warnings.some(w => w.issue.match(/Movie exists in multiple qualities/))).toBe(
       true
     )
   })
@@ -243,7 +251,40 @@ describe('movies module — warnings', () => {
         acceptable_quality_combos: [['UHD', 'HD']],
       },
     })
-    expect(result.warnings.some(w => w.issue.match(/multiple categories/))).toBe(false)
+    expect(result.warnings.some(w => w.issue.match(/multiple qualities/))).toBe(false)
+  })
+
+  it('warn_multi_quality: silenced for {Other UHD, Other HD} via the single [UHD, HD] combo', () => {
+    // Auto-detect maps Other UHD → UHD and Other HD → HD, so this resolves
+    // to qualities {UHD, HD} and matches the combo without needing a separate entry.
+    const result = runMoviesScan({
+      spec: {
+        'Other UHD': { 'X (2000)': { 'X (2000).mp4': '' } },
+        'Other HD': { 'X (2000)': { 'X (2000).mp4': '' } },
+      },
+      rules: {
+        categories: [{ name: 'Other UHD' }, { name: 'Other HD' }],
+        acceptable_quality_combos: [['UHD', 'HD']],
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/multiple qualities/))).toBe(false)
+  })
+
+  it('warn_multi_quality: fires for {Other HD, SD} — quality set {HD, SD} not in combos', () => {
+    // User's specific concern: Other HD (→ HD) + SD = qualities {HD, SD}.
+    // Not in `[[UHD, HD]]` combo → fires.
+    const result = runMoviesScan({
+      spec: {
+        'Other HD': { 'The Crow (1994)': { 'The Crow (1994).mp4': '' } },
+        SD: { 'The Crow (1994)': { 'The Crow (1994).mp4': '' } },
+      },
+      rules: {
+        categories: [{ name: 'Other HD' }, { name: 'SD' }],
+        acceptable_quality_combos: [['UHD', 'HD']],
+      },
+    })
+    const w = result.warnings.find(x => x.issue.match(/multiple qualities/))
+    expect(w?.issue).toMatch(/HD, SD/) // canonical-order sort: HD before SD
   })
 
   it('warn_no_videos: folder has no video files', () => {
@@ -271,6 +312,22 @@ describe('movies module — warnings', () => {
       },
     })
     expect(result.warnings.some(w => w.issue.match(/Unexpected file/))).toBe(true)
+  })
+
+  it('warn_unexpected_entries: stray non-video, non-sidecar file inside a movie folder', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: {
+          'The Crow (1994)': {
+            'The Crow (1994).mp4': '',
+            'random.zip': '', // non-video, non-sidecar — flagged
+          },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Unexpected file\(s\) in movie folder/))).toBe(
+      true
+    )
   })
 
   it('warn_loose_files: video file directly inside a category folder', () => {

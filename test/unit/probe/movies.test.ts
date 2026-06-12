@@ -98,8 +98,8 @@ describe('probeMovies', () => {
     })
   })
 
-  it('skips warn_quality_mismatch for categories with no matching bucket', async () => {
-    // "Other HD" is not a bucket name, so files there are silently passed.
+  it('fires warn_quality_mismatch for files in "Other HD" — auto-detected quality maps to HD bucket', async () => {
+    // After the auto-detect change: "Other HD" → quality "HD" → has bucket → 720x480 fails.
     const { rules, root, cache, warnings } = setup({
       spec: { 'Other HD': { 'X (2000)': { 'X (2000).mp4': '' } } },
       rules: {
@@ -107,6 +107,24 @@ describe('probeMovies', () => {
       },
       probes: {
         'Other HD/X (2000)/X (2000).mp4': fakeProbe({
+          video: { codec: 'h264', width: 720, height: 480, frame_rate: 24 },
+        }),
+      },
+    })
+
+    await probeMovies({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/Quality mismatch/))).toBe(true)
+  })
+
+  it('skips warn_quality_mismatch for general-tag categories with no detected quality', async () => {
+    // A "Documentary" category has no UHD/HD/SD substring → quality null → silent pass.
+    const { rules, root, cache, warnings } = setup({
+      spec: { Documentary: { 'X (2000)': { 'X (2000).mp4': '' } } },
+      rules: {
+        categories: [{ name: 'Documentary' }],
+      },
+      probes: {
+        'Documentary/X (2000)/X (2000).mp4': fakeProbe({
           video: { codec: 'h264', width: 720, height: 480, frame_rate: 24 },
         }),
       },
@@ -144,6 +162,68 @@ describe('probeMovies', () => {
     await probeMovies({ root_path: root }, rules, cache, warnings)
     // No video means classifyQuality is skipped entirely; no warning.
     expect(warnings.all()).toEqual([])
+  })
+
+  it('parses {edition-} empty-edition file stems as null edition (matches scan)', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        UHD: {
+          'The Crow (1994)': { 'The Crow (1994) {edition-}.mp4': '' },
+        },
+      },
+      probes: {
+        'UHD/The Crow (1994)/The Crow (1994) {edition-}.mp4': fakeProbe({
+          video: { codec: 'hevc', width: 3840, height: 2160, frame_rate: 24 },
+        }),
+      },
+    })
+
+    const result = await probeMovies({ root_path: root }, rules, cache, warnings)
+    expect(result.output[0]?.edition).toBeNull()
+  })
+
+  it('sorts the aggregated output by title, then year, then edition', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        UHD: {
+          'Beta (2000)': { 'Beta (2000).mp4': '' },
+          'Alpha (2010)': { 'Alpha (2010).mp4': '' },
+          'Alpha (2000)': { 'Alpha (2000).mp4': '' },
+          'Same Movie (2000)': {
+            'Same Movie (2000) {edition-Directors Cut}.mp4': '',
+            'Same Movie (2000) {edition-Theatrical}.mp4': '',
+          },
+        },
+      },
+      probes: {
+        'UHD/Beta (2000)/Beta (2000).mp4': fakeProbe({
+          video: { codec: 'hevc', width: 3840, height: 2160, frame_rate: 24 },
+        }),
+        'UHD/Alpha (2010)/Alpha (2010).mp4': fakeProbe({
+          video: { codec: 'hevc', width: 3840, height: 2160, frame_rate: 24 },
+        }),
+        'UHD/Alpha (2000)/Alpha (2000).mp4': fakeProbe({
+          video: { codec: 'hevc', width: 3840, height: 2160, frame_rate: 24 },
+        }),
+        'UHD/Same Movie (2000)/Same Movie (2000) {edition-Directors Cut}.mp4': fakeProbe({
+          video: { codec: 'hevc', width: 3840, height: 2160, frame_rate: 24 },
+        }),
+        'UHD/Same Movie (2000)/Same Movie (2000) {edition-Theatrical}.mp4': fakeProbe({
+          video: { codec: 'hevc', width: 3840, height: 2160, frame_rate: 24 },
+        }),
+      },
+    })
+
+    const result = await probeMovies({ root_path: root }, rules, cache, warnings)
+    const order = result.output.map(m => `${m.title}-${m.year}-${m.edition ?? ''}`)
+    // Title ASC; within same title, year ASC; within same year, edition ASC.
+    expect(order).toEqual([
+      'Alpha-2000-',
+      'Alpha-2010-',
+      'Beta-2000-',
+      'Same Movie-2000-Directors Cut',
+      'Same Movie-2000-Theatrical',
+    ])
   })
 
   it('skips category folders that do not exist on disk', async () => {

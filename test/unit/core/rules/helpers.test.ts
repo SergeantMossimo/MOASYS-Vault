@@ -4,6 +4,7 @@ import {
   PatternSchema,
   CategorySchema,
   compilePattern,
+  detectQuality,
   resolveCategories,
 } from '../../../../src/core/rules/helpers'
 
@@ -76,15 +77,67 @@ describe('CategorySchema', () => {
   })
 })
 
-describe('resolveCategories', () => {
-  it('synthesizes a single root-walk entry when configured is empty', () => {
-    expect(resolveCategories([])).toEqual([{ folderName: '', name: 'default' }])
+describe('detectQuality', () => {
+  it('returns the keyword when the category name is exactly UHD/HD/SD', () => {
+    expect(detectQuality('UHD')).toBe('UHD')
+    expect(detectQuality('HD')).toBe('HD')
+    expect(detectQuality('SD')).toBe('SD')
   })
 
-  it('maps each configured category to { folderName, name } with matching values', () => {
+  it('matches inside multi-word names with whole-word boundary', () => {
+    expect(detectQuality('Other UHD')).toBe('UHD')
+    expect(detectQuality('Other HD')).toBe('HD')
+    expect(detectQuality('Other SD')).toBe('SD')
+    expect(detectQuality("Director's Cut UHD")).toBe('UHD')
+  })
+
+  it('is case-insensitive', () => {
+    expect(detectQuality('uhd')).toBe('UHD')
+    expect(detectQuality('other hd')).toBe('HD')
+    expect(detectQuality('OtHeR sD')).toBe('SD')
+  })
+
+  it('prefers UHD over HD when both could match (UHD-first ordering)', () => {
+    // "UHD" alone — both `\bUHD\b` and `\bHD\b` could find substrings, but
+    // word boundaries make `HD` not match inside `UHD`. Just verify UHD wins.
+    expect(detectQuality('UHD')).toBe('UHD')
+    // If a hypothetical name contained both, the iteration order should pick UHD.
+    expect(detectQuality('UHD or HD edition')).toBe('UHD')
+  })
+
+  it('returns null when no whole-word keyword is present', () => {
+    expect(detectQuality('USD')).toBeNull() // contains SD as substring but not whole-word
+    expect(detectQuality('Standard')).toBeNull()
+    expect(detectQuality('Standard Definition')).toBeNull()
+    expect(detectQuality('Documentary')).toBeNull()
+    expect(detectQuality('Music')).toBeNull()
+    expect(detectQuality('Audible')).toBeNull()
+    expect(detectQuality('Book On CD')).toBeNull()
+  })
+
+  it('respects word boundaries around hyphens, slashes, and parens', () => {
+    expect(detectQuality('UHD-Remaster')).toBe('UHD')
+    expect(detectQuality('Remaster (UHD)')).toBe('UHD')
+    expect(detectQuality('HD/Other')).toBe('HD')
+  })
+})
+
+describe('resolveCategories', () => {
+  it('synthesizes a single root-walk entry when configured is empty', () => {
+    expect(resolveCategories([])).toEqual([{ folderName: '', name: 'default', quality: null }])
+  })
+
+  it('detects quality from each configured category name', () => {
     expect(resolveCategories([{ name: 'UHD' }, { name: 'Other HD' }])).toEqual([
-      { folderName: 'UHD', name: 'UHD' },
-      { folderName: 'Other HD', name: 'Other HD' },
+      { folderName: 'UHD', name: 'UHD', quality: 'UHD' },
+      { folderName: 'Other HD', name: 'Other HD', quality: 'HD' },
+    ])
+  })
+
+  it('assigns quality null to general-tag categories', () => {
+    expect(resolveCategories([{ name: 'Music' }, { name: 'Audible' }])).toEqual([
+      { folderName: 'Music', name: 'Music', quality: null },
+      { folderName: 'Audible', name: 'Audible', quality: null },
     ])
   })
 

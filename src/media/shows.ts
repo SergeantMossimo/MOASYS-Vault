@@ -23,8 +23,8 @@ import { ShowsConfig, ShowRecord, ShowOutput, WarningCollector, MediaModule } fr
 import { hasExtension, isPrimary, formatPrimaryExts, findUnexpectedEntries } from '../core/files'
 import { findNumericGaps } from '../core/gaps'
 import { ShowsRules } from '../core/rules/shows'
-import { compilePattern, resolveCategories } from '../core/rules/helpers'
-import { finalizeVersions } from '../core/versions'
+import { compilePattern, resolveCategories, sortQualities } from '../core/rules/helpers'
+import { finalizeVersions, distinctCategories } from '../core/versions'
 import { ProbeData } from '../probe/types'
 import { deriveQuality } from '../probe/helpers'
 
@@ -120,6 +120,21 @@ export function createShowsModule(
 
   const effectiveCategories = resolveCategories(rules.categories)
   const categoryOrder = effectiveCategories.map(c => c.name)
+
+  // Map each category name to its auto-detected quality (or the category
+  // name itself when quality is null). Used by the per-season multi_quality
+  // postScan check so {Other HD, SD} resolves to qualities {HD, SD}.
+  const categoryToQuality = new Map<string, string>()
+  for (const c of effectiveCategories) {
+    categoryToQuality.set(c.name, c.quality ?? c.name)
+  }
+
+  /** Return true if the quality set matches one of the acceptable combos. */
+  function isAcceptableCombo(qualities: Set<string>, combos: readonly string[][]): boolean {
+    return combos.some(
+      combo => combo.length === qualities.size && combo.every(q => qualities.has(q))
+    )
+  }
 
   return {
     getCategories: () => effectiveCategories,
@@ -470,6 +485,33 @@ export function createShowsModule(
               versions: finalizeVersions(s.versions, categoryOrder),
             })),
         }))
+    },
+
+    /**
+     * Post-merge check: emit a warning for each (show, season) pair whose
+     * versions span more than one distinct quality, unless that quality set
+     * is whitelisted via `acceptable_quality_combos`. Per-season scope means
+     * different seasons in different qualities (S01 DVD, S02-S08 Bluray) do
+     * NOT trigger this — only a single season existing in multiple qualities
+     * does (e.g. S01 in both DVD/SD and Bluray/HD).
+     */
+    postScan(records: Map<string, ShowRecord>, warnings: WarningCollector): void {
+      if (!rules.checks.warn_multi_quality) return
+
+      for (const show of records.values()) {
+        for (const season of show.seasons.values()) {
+          const cats = distinctCategories(season.versions)
+          const qualities = new Set<string>()
+          for (const c of cats) qualities.add(categoryToQuality.get(c) ?? c)
+          if (qualities.size <= 1) continue
+          if (isAcceptableCombo(qualities, rules.acceptable_quality_combos)) continue
+
+          warnings.add(
+            `${show.title} (${show.year}) — Season ${season.season_label}`,
+            `Season ${season.season_label} exists in multiple qualities: ${sortQualities(qualities).join(', ')}`
+          )
+        }
+      }
     },
   }
 }

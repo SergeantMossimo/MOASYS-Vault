@@ -27,7 +27,7 @@ import {
 } from '../core/types'
 import { hasExtension, isPrimary, formatPrimaryExts, findUnexpectedEntries } from '../core/files'
 import { MoviesRules } from '../core/rules/movies'
-import { compilePattern, resolveCategories } from '../core/rules/helpers'
+import { compilePattern, resolveCategories, sortQualities } from '../core/rules/helpers'
 import { finalizeVersions, distinctCategories } from '../core/versions'
 import { ProbeData } from '../probe/types'
 import { deriveQuality } from '../probe/helpers'
@@ -86,11 +86,9 @@ function makeKey(title: string, year: number, edition: string | null): string {
   return `${title.toLowerCase()}|${year}|${(edition ?? '').toLowerCase()}`
 }
 
-/** Return true if the category set matches one of the acceptable combos */
-function isAcceptableCombo(categories: Set<string>, combos: readonly string[][]): boolean {
-  return combos.some(
-    combo => combo.length === categories.size && combo.every(q => categories.has(q))
-  )
+/** Return true if the quality set matches one of the acceptable combos */
+function isAcceptableCombo(qualities: Set<string>, combos: readonly string[][]): boolean {
+  return combos.some(combo => combo.length === qualities.size && combo.every(q => qualities.has(q)))
 }
 
 /** Build the Plex-style movie name used as the warning path */
@@ -134,6 +132,16 @@ export function createMoviesModule(
   // "default" when nothing is configured.
   const effectiveCategories = resolveCategories(rules.categories)
   const categoryOrder = effectiveCategories.map(c => c.name)
+
+  // Map each category name to its auto-detected quality (or the category name
+  // itself when quality is null). Used by the multi-quality postScan check to
+  // compare quality sets against `acceptable_quality_combos`, so that e.g.
+  // a movie in `{Other UHD, Other HD}` resolves to `{UHD, HD}` and matches a
+  // simple combo entry of `[UHD, HD]`.
+  const categoryToQuality = new Map<string, string>()
+  for (const c of effectiveCategories) {
+    categoryToQuality.set(c.name, c.quality ?? c.name)
+  }
 
   return {
     getCategories: () => effectiveCategories,
@@ -387,21 +395,26 @@ export function createMoviesModule(
     },
 
     /**
-     * Post-merge check: emit a warning for each movie that exists in more than
-     * one category, unless its category set is in acceptable_quality_combos.
+     * Post-merge check: emit a warning for each movie that exists across
+     * multiple distinct qualities, unless that quality set is whitelisted
+     * via `acceptable_quality_combos`. Categories are mapped through
+     * `categoryToQuality` first, so `{Other UHD, Other HD}` and `{UHD, HD}`
+     * both resolve to the quality set `{UHD, HD}` and match a single combo
+     * entry of `[UHD, HD]`.
      */
     postScan(records: Map<string, MovieRecord>, warnings: WarningCollector): void {
       if (!rules.checks.warn_multi_quality) return
 
       for (const record of records.values()) {
-        const cats = new Set(distinctCategories(record.versions))
-        if (cats.size <= 1) continue
-        if (isAcceptableCombo(cats, rules.acceptable_quality_combos)) continue
+        const cats = distinctCategories(record.versions)
+        const qualities = new Set<string>()
+        for (const c of cats) qualities.add(categoryToQuality.get(c) ?? c)
+        if (qualities.size <= 1) continue
+        if (isAcceptableCombo(qualities, rules.acceptable_quality_combos)) continue
 
-        const ordered = categoryOrder.filter(c => cats.has(c))
         warnings.add(
           movieDisplayName(record),
-          `Movie exists in multiple categories: ${ordered.join(', ')}`
+          `Movie exists in multiple qualities: ${sortQualities(qualities).join(', ')}`
         )
       }
     },

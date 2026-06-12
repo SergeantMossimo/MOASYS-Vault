@@ -118,6 +118,7 @@ function collectTasks(
             relativePath: toRel(path.join(cat.folderName, movieEntry.name, f.name)),
             absolutePath,
             category: cat.name,
+            quality: cat.quality,
             mtime: stat.mtimeMs,
             size: stat.size,
           },
@@ -240,7 +241,7 @@ export async function probeMovies(
       const { bucket, longEdge, fits } = classifyQuality(
         data.video.width,
         data.video.height,
-        task.category,
+        task.quality,
         rules.quality_thresholds
       )
       if (bucket !== null && !fits) {
@@ -250,7 +251,7 @@ export async function probeMovies(
             `doesn't fit bucket '${bucket.name}' (` +
             `${bucket.min_width !== undefined ? `min ${bucket.min_width}` : 'no min'}, ` +
             `${bucket.max_width !== undefined ? `max ${bucket.max_width}` : 'no max'}` +
-            `) for category '${task.category}'`
+            `) for quality '${task.quality}' (category '${task.category}')`
         )
       }
     }

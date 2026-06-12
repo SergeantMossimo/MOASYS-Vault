@@ -108,10 +108,12 @@ quality_thresholds:
     max_width: 1000
 ```
 
-Each bucket's `name` must match a category name to take effect. Two things happen per probed file:
+Each bucket's `name` matches a quality keyword (`UHD`, `HD`, or `SD`) — the same vocabulary the scanner auto-detects from category names. Two things happen per probed file:
 
 1. **Quality derivation** — the bucket whose dimension range contains the file's long edge (`max(width, height)`) becomes the version's `quality`. Independent of the file's category.
-2. **`warn_quality_mismatch`** — if the file's category name ALSO matches a bucket and the derived quality differs from the category, the file is flagged. Categories without a matching bucket (e.g. `Other UHD` when no bucket of that name exists) are silently passed.
+2. **`warn_quality_mismatch`** — each category resolves to a quality via whole-word substring detection: `UHD/Other UHD` → UHD, `HD/Other HD` → HD, `SD/Other SD` → SD. Categories with no UHD/HD/SD substring (e.g. `Documentary`) resolve to `null` and are silently passed. When a file's category-resolved quality has a matching bucket and the file's actual long edge doesn't fit that bucket, it's flagged.
+
+This means a 480p file in `Other HD/` IS flagged (Other HD → HD bucket), while a 480p file in `Documentary/` is not (no quality detected). See [docs/CONFIG.md](CONFIG.md#three-configuration-shapes) for the configuration matrix.
 
 Forgiving by design: HandBrake-cropped 664×448 SD and 1920×800 HD still classify correctly. Ships empty by default so libraries without quality buckets stay quiet.
 

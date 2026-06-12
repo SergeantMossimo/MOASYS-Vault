@@ -26,6 +26,12 @@ patterns:
 # Subfolders under root_path to walk. Each category's `name` is both the
 # folder name on disk AND the label used in output JSON. Empty (the default)
 # means: walk root_path directly and label records as "default".
+#
+# Quality auto-detection: names containing UHD / HD / SD (whole-word, case-
+# insensitive, UHD-first) auto-resolve to that quality and participate in
+# warn_quality_mismatch + warn_multi_quality (per-season) checks. Names
+# without those keywords are general tags — quality checks don't apply.
+# See docs/CONFIG.md "Three configuration shapes".
 categories: []
 
 # ── File extensions ─────────────────────────────────────────────────────────
@@ -67,6 +73,14 @@ sidecar_extensions:
 # Empty default = silent. Configure for your library in shows.local.yaml.
 quality_thresholds: []
 
+# ── Acceptable per-season multi-quality combos ──────────────────────────────
+# Quality sets a single season is allowed to span without triggering
+# warn_multi_quality. Different seasons in different qualities never fire
+# (per-season scope); this whitelists pairings within ONE season — e.g.
+# keeping both UHD and HD copies of S01.
+acceptable_quality_combos:
+  - [UHD, HD]
+
 # ── Per-warning toggles ─────────────────────────────────────────────────────
 checks:
   warn_non_primary: true          # File isn't the configured primary format
@@ -78,6 +92,7 @@ checks:
   warn_season_mismatch: true      # File's season number vs parent season folder
   warn_episode_gaps: true         # Gap detected in episode numbers
   warn_quality_mismatch: true     # ffprobe dimensions don't fit quality_thresholds bucket
+  warn_multi_quality: true        # A single season exists in multiple distinct qualities
   warn_loose_files: true          # Video files at unexpected nesting
   warn_extra_subfolders: true     # Unexpected subfolders inside a season folder
   warn_unexpected_entries: true   # Non-video, non-sidecar files

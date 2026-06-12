@@ -38,6 +38,8 @@ The user already has Plex; the point isn't to replicate Plex's functionality. It
 
 `config.json` carries per-machine "where" data (`root_path` per media type), validated by Zod in `src/core/config.ts`. `rules/<type>.yaml` carries "how" data (regex patterns, file extensions, naming conventions, per-warning toggles, the `categories` list of subfolders to walk). Each media module (`src/media/<type>.ts`) is a **factory** that takes the validated rules and returns a `MediaModule` object. The merged runner `src/scan.ts` per type: loads the probe cache, runs `probe<Type>` (ffprobe + ID3 for music), then calls `scan()` in `src/core/scanner.ts` which iterates `module.getCategories()` and calls `module.scanCategory()` for each — passing a `probeByPath` map so movies/shows derive each version's quality from ffprobe dimensions via `deriveQuality()`. One run produces `<type>.json` (catalog with `versions: [{category, quality}]`), `probe.json` (rich raw data), and `warnings.json` (everything from both passes). Validation is via Zod in `src/core/rules/`.
 
+**Quality auto-detection** (movies + shows): each category's name is scanned for the whole-word substring `UHD`/`HD`/`SD` (case-insensitive, UHD-first) via `detectQuality` in `src/core/rules/helpers.ts`. The resolved `ResolvedCategory.quality` powers both the `warn_quality_mismatch` check (via `classifyQuality`) and the `warn_multi_quality` duplicate-across-qualities check (per-movie for movies, per-season for shows). Categories without a UHD/HD/SD substring resolve to `quality: null` and behave as general tags — no quality checks apply. See [docs/CONFIG.md](docs/CONFIG.md) "Three configuration shapes" for the user-facing explanation.
+
 ## Rules system
 
 Three-tier merge for each media type:

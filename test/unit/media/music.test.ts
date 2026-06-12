@@ -237,6 +237,58 @@ describe('music module — warnings', () => {
     expect(result.warnings.some(w => w.issue.match(/Unexpected file/))).toBe(true)
   })
 
+  it('warn_bad_artist_folder: fires when artist folder name does not match the configured pattern', () => {
+    // Tighten the artist pattern to require leading capital so a lowercase
+    // artist folder gets flagged. Pattern values are post-Zod {pattern,flags}
+    // objects, not raw strings.
+    const result = runMusicScan({
+      spec: {
+        Music: {
+          'pink floyd': { 'The Wall': { '01 - Song.flac': '' } },
+        },
+      },
+      rules: {
+        patterns: {
+          ...defaultMusicRules.patterns,
+          artist_folder: { pattern: '^[A-Z].+$', flags: '' },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Artist folder name does not match/))).toBe(true)
+  })
+
+  it('warn_bad_album_folder: fires when album folder name does not match the configured pattern', () => {
+    const result = runMusicScan({
+      spec: {
+        Music: {
+          'Pink Floyd': { thewall: { '01 - Song.flac': '' } },
+        },
+      },
+      rules: {
+        patterns: {
+          ...defaultMusicRules.patterns,
+          album_folder: { pattern: '^[A-Z].+$', flags: '' },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Album folder name does not match/))).toBe(true)
+  })
+
+  it('warn_suspicious_folder_chars: trailing whitespace on album folder', () => {
+    const result = runMusicScan({
+      spec: {
+        Music: {
+          'Pink Floyd': {
+            'The Wall ': { '01 - Song.flac': '' }, // trailing space
+          },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Suspicious characters in album folder/))).toBe(
+      true
+    )
+  })
+
   it('warn_suspicious_folder_chars: trailing whitespace on artist folder', () => {
     const result = runMusicScan({
       spec: {

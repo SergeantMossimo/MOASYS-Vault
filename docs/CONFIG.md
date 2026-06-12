@@ -81,7 +81,8 @@ Boot-time logs make it clear which files contributed:
   - Movies — `year_range` (min/max plausible film year, `max: current` resolves to this year), `acceptable_quality_combos` (cross-category pairings that shouldn't warn), `quality_thresholds` (pixel-range buckets keyed by category name).
   - Shows — `ignored_season_names` (Plex special-season folders to accept, e.g. `Specials`), `quality_thresholds`.
   - Music and audiobooks — patterns and extensions only (no extra constants).
-- **`quality_thresholds`** (movies + shows) — each bucket's `name` must match a category name to take effect. A file's `quality` is the bucket whose dimension range contains its long edge; if its category also matches a bucket name (e.g. a file in the `UHD` category) and the derived quality differs from the category, `warn_quality_mismatch` fires. Buckets named `Other UHD` etc. would match nothing in a typical setup, so categories like `Other UHD` are silently passed.
+- **`quality_thresholds`** (movies + shows) — each bucket's `name` matches an auto-detected quality keyword (`UHD`, `HD`, or `SD`) extracted from category names via whole-word matching. So `Other UHD` resolves to quality `UHD` and gets checked against the `UHD` bucket. Categories with no UHD/HD/SD substring (`Documentary`, `Music`, etc.) are general-purpose tags — `warn_quality_mismatch` doesn't apply to them. See the [Three configuration shapes](#three-configuration-shapes) section below.
+- **`acceptable_quality_combos`** (movies + shows) — list of quality sets that are explicitly OK to coexist. After category-to-quality mapping, a movie in `{Other UHD, Other HD}` resolves to quality set `{UHD, HD}` and is silenced by a single `[UHD, HD]` combo. For shows, the combo applies per-season (different seasons in different qualities are fine on their own).
 - **`checks`** — per-warning toggles. Set any `warn_*` field to `false` to silence that warning without changing code.
 
 ### Validation
@@ -95,6 +96,74 @@ Error: rules/movies.yaml failed schema validation:
 ```
 
 The defaults live in code at `src/core/rules/<type>.ts` alongside the schema, so changes ship as a single coordinated update.
+
+---
+
+## Three configuration shapes
+
+How you set up `categories` (and the related `quality_thresholds` / `acceptable_quality_combos`) depends on what you want the scanner to do with each subfolder. There are three common shapes:
+
+### A. Quality-organized categories (e.g. your movies + shows by UHD/HD/SD)
+
+You have subfolders like `UHD/`, `HD/`, `SD/`, possibly with `Other UHD/`, `Other HD/`, `Other SD/` variants. You want the scanner to:
+
+- Flag files whose actual dimensions don't match the quality their folder implies (`warn_quality_mismatch`)
+- Flag the same media stored across multiple distinct qualities (`warn_multi_quality`)
+
+**Configure**:
+
+```yaml
+# rules/movies.local.yaml
+categories:
+  - { name: UHD }
+  - { name: HD }
+  - { name: SD }
+  - { name: Other UHD } # quality auto-detected as UHD
+  - { name: Other HD } # quality auto-detected as HD
+  - { name: Other SD } # quality auto-detected as SD
+
+quality_thresholds:
+  - { name: UHD, min_width: 2000 }
+  - { name: HD, min_width: 1000, max_width: 2000 }
+  - { name: SD, max_width: 1000 }
+
+acceptable_quality_combos:
+  - [UHD, HD] # auto-detect collapses "Other UHD"+"Other HD" into the same set
+```
+
+**Quality auto-detection rule**: each category name is scanned for the whole-word, case-insensitive substring `UHD`, `HD`, or `SD` (UHD checked first so it wins over the contained `HD`). Matching is on word boundaries — `USD`, `Standard`, or `Hi-Def` do NOT match.
+
+### B. General-purpose tag categories (e.g. your audiobooks: Audible, Book On CD)
+
+Your subfolder names are concepts (a format, an imprint, a vendor) that aren't quality buckets. You want each record tagged with which folder it's in, but no dimension checks should apply.
+
+**Configure**:
+
+```yaml
+# rules/audiobooks.local.yaml
+categories:
+  - { name: Audible }
+  - { name: Other Audible }
+  - { name: Book On CD }
+# Leave quality_thresholds out / empty — nothing to check against.
+# acceptable_quality_combos doesn't exist on audiobooks; warn_duplicate_book
+# fires for any cross-category dup. Use `ignored/audiobooks.yaml` for
+# legitimate exceptions.
+```
+
+Because none of these names contain `UHD`/`HD`/`SD`, all categories resolve to `quality: null`. `warn_quality_mismatch` never fires. `warn_duplicate_book` still fires if the same book exists across multiple categories.
+
+### C. No categories — flat library
+
+Your media just lives directly under `root_path` with no subfolders for organization.
+
+**Configure**:
+
+```yaml
+categories: [] # or omit entirely
+```
+
+The scanner walks `root_path` directly and labels every record's category as `"default"`. No quality or duplicate checks fire. Naming hygiene checks still work.
 
 ---
 
