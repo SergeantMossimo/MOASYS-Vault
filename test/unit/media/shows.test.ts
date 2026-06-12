@@ -342,6 +342,103 @@ describe('shows module — warnings', () => {
   })
 })
 
+describe('shows module — warn_multi_quality (per-season)', () => {
+  it('fires when a single season exists in multiple qualities', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            'Season 01': { 'Show (2020) - S01E01.mp4': '' },
+          },
+        },
+        SD: {
+          'Show (2020)': {
+            'Season 01': { 'Show (2020) - S01E01.mp4': '' },
+          },
+        },
+      },
+      rules: {
+        acceptable_quality_combos: [['UHD', 'HD']], // HD/SD NOT acceptable
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/Season 1 exists in multiple qualities/))).toBe(
+      true
+    )
+  })
+
+  it('does NOT fire when different seasons are in different qualities', () => {
+    // The "Game of Thrones DVD + Bluray" case: S01 on DVD, S02 on Bluray.
+    const result = runShowsScan({
+      spec: {
+        SD: {
+          'GoT (2011)': {
+            'Season 01': { 'GoT (2011) - S01E01.mp4': '' },
+          },
+        },
+        HD: {
+          'GoT (2011)': {
+            'Season 02': { 'GoT (2011) - S02E01.mp4': '' },
+          },
+        },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/multiple qualities/))).toBe(false)
+  })
+
+  it("silenced when the season's quality set matches acceptable_quality_combos", () => {
+    const result = runShowsScan({
+      spec: {
+        UHD: {
+          'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } },
+        },
+        HD: {
+          'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } },
+        },
+      },
+      rules: {
+        acceptable_quality_combos: [['UHD', 'HD']],
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/multiple qualities/))).toBe(false)
+  })
+
+  it('uses auto-detected qualities so {Other HD, SD} resolves to {HD, SD}', () => {
+    const result = runShowsScan({
+      spec: {
+        'Other HD': {
+          'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } },
+        },
+        SD: {
+          'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } },
+        },
+      },
+      rules: {
+        categories: [{ name: 'Other HD' }, { name: 'SD' }],
+        acceptable_quality_combos: [['UHD', 'HD']],
+      },
+    })
+    const w = result.warnings.find(x => x.issue.match(/multiple qualities/))
+    expect(w?.issue).toMatch(/HD, SD/) // canonical-order sort
+  })
+
+  it('silenced when the toggle is false', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: {
+          'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } },
+        },
+        SD: {
+          'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } },
+        },
+      },
+      rules: {
+        checks: { ...defaultShowsRules.checks, warn_multi_quality: false },
+      },
+    })
+    expect(result.warnings.some(w => w.issue.match(/multiple qualities/))).toBe(false)
+  })
+})
+
 describe('shows module — categories integration', () => {
   it('uses synthetic "default" category when none configured', () => {
     const result = runShowsScan({

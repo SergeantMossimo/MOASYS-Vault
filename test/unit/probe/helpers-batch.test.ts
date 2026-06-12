@@ -43,6 +43,7 @@ describe('probeOrCache', () => {
     relativePath: 'UHD/Movie/Movie.mp4',
     absolutePath: '/fake/path/Movie.mp4',
     category: 'UHD',
+    quality: 'UHD',
     mtime: 12345,
     size: 5000,
   }
@@ -113,6 +114,7 @@ describe('probeBatch', () => {
       relativePath: `UHD/Movie${i}.mp4`,
       absolutePath: `/fake/Movie${i}.mp4`,
       category: 'UHD',
+      quality: 'UHD',
       mtime: 100 + i,
       size: 1000 + i,
     }

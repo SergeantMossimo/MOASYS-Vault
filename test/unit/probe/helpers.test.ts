@@ -71,8 +71,8 @@ describe('deriveQuality', () => {
 })
 
 describe('classifyQuality', () => {
-  it('returns bucket=null and fits=true when no bucket matches the category name', () => {
-    const result = classifyQuality(3840, 2160, 'Other UHD', buckets)
+  it('returns bucket=null and fits=true when quality is null (general tag)', () => {
+    const result = classifyQuality(3840, 2160, null, buckets)
     expect(result.bucket).toBeNull()
     expect(result.fits).toBe(true)
     expect(result.longEdge).toBe(3840)
@@ -85,14 +85,14 @@ describe('classifyQuality', () => {
   })
 
   it('reports fits=false when the file is in its matching bucket but undersized', () => {
-    // File in UHD category but actually only HD-sized (1920px).
+    // File classified as UHD but actually only HD-sized (1920px).
     const result = classifyQuality(1920, 1080, 'UHD', buckets)
     expect(result.bucket?.name).toBe('UHD')
     expect(result.fits).toBe(false)
   })
 
   it('reports fits=false when the file exceeds the bucket max', () => {
-    // File in SD category but actually 4K.
+    // File classified as SD but actually 4K.
     const result = classifyQuality(3840, 2160, 'SD', buckets)
     expect(result.bucket?.name).toBe('SD')
     expect(result.fits).toBe(false)
@@ -106,11 +106,18 @@ describe('classifyQuality', () => {
     expect(result.longEdge).toBe(1920)
   })
 
-  it('passes silently when category does not appear in any bucket name', () => {
-    // The opt-in semantic: "Other UHD" has no matching bucket, so classifyQuality
-    // returns bucket=null even though the file's dimensions would also fail UHD.
-    const result = classifyQuality(1920, 1080, 'Other UHD', buckets)
+  it('passes silently when the quality has no matching bucket name', () => {
+    // No bucket called "Documentary" — passes silently regardless of dimensions.
+    const result = classifyQuality(1920, 1080, 'Documentary', buckets)
     expect(result.bucket).toBeNull()
     expect(result.fits).toBe(true)
+  })
+
+  it('catches files in "Other X" categories now that quality is auto-mapped', () => {
+    // The whole point of Step 1+3: a file in `Other UHD` (quality detects to "UHD")
+    // with HD-sized dimensions now FAILS its bucket check.
+    const result = classifyQuality(1920, 1080, 'UHD', buckets)
+    expect(result.bucket?.name).toBe('UHD')
+    expect(result.fits).toBe(false)
   })
 })

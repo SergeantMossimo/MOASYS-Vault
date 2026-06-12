@@ -184,6 +184,41 @@ describe('validateMovies — confidence scoring', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/Search failed/))
   })
 
+  it('scores a space-prefix match (subtitle missing) at +60 title points', async () => {
+    // TMDB title prefixes our title with a space + extra words. With exact
+    // year, score = 60 (prefix) + 50 (year) = 110 → "medium".
+    const client = mockClient({
+      searchResults: [
+        {
+          id: 1,
+          title: 'Star Wars Episode IV',
+          original_title: 'Star Wars Episode IV',
+          release_date: '1977-05-25',
+          popularity: 50,
+        },
+      ],
+      details: {
+        1: {
+          id: 1,
+          title: 'Star Wars Episode IV',
+          original_title: 'Star Wars Episode IV',
+          release_date: '1977-05-25',
+        },
+      },
+    })
+
+    const result = await validateMovies(
+      [movie('Star Wars', 1977)],
+      defaultMoviesRules,
+      client,
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    expect(result[0]?.confidence).toBe('medium')
+  })
+
   it('picks the more popular movie when scores tie', async () => {
     const client = mockClient({
       searchResults: [
@@ -325,6 +360,59 @@ describe('validateMovies — warnings', () => {
       warnings
     )
     expect(warnings.all().some(w => w.issue.match(/canonical title/i))).toBe(true)
+  })
+
+  it('warn_tmdb_low_confidence includes Alternatives: text when alternate candidates are available', async () => {
+    // Search returns two candidates. The best is low-confidence (partial title
+    // match) and the runner-up has details in the cache, so the warning text
+    // ends with the "Alternatives: ..." sentence.
+    const client = mockClient({
+      searchResults: [
+        {
+          id: 1,
+          title: 'The Big Adventure',
+          original_title: 'The Big Adventure',
+          release_date: '2020-01-01',
+          popularity: 100, // wins ranking
+        },
+        {
+          id: 2,
+          title: 'Adventure Time',
+          original_title: 'Adventure Time',
+          release_date: '2010-01-01',
+          popularity: 5,
+        },
+      ],
+      details: {
+        1: {
+          id: 1,
+          title: 'The Big Adventure',
+          original_title: 'The Big Adventure',
+          release_date: '2020-01-01',
+        },
+      },
+    })
+    const detailsCache = memoryCache<TmdbMovieDetails>({
+      '2': {
+        id: 2,
+        title: 'Adventure Time',
+        original_title: 'Adventure Time',
+        release_date: '2010-01-01',
+      },
+    })
+
+    await validateMovies(
+      [movie('Adventure', 2020)],
+      defaultMoviesRules,
+      client,
+      memoryCache(),
+      detailsCache,
+      warnings
+    )
+
+    const lowWarn = warnings.all().find(w => w.issue.match(/low-confidence/i))
+    expect(lowWarn?.issue).toMatch(/Alternatives:/)
+    expect(lowWarn?.issue).toContain("'Adventure Time'")
   })
 
   it('silences warnings when toggles are false', async () => {

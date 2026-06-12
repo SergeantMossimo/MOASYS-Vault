@@ -33,8 +33,15 @@ export interface ProbeTask {
   relativePath: string
   /** Absolute path used to spawn ffprobe */
   absolutePath: string
-  /** Category label (folder name, or "default") — used for quality_threshold lookup */
+  /** Category label (folder name, or "default") — surfaced in probe.json output */
   category: string
+  /**
+   * Auto-detected quality keyword for this category (UHD/HD/SD), or null
+   * when the category name doesn't include one. Used by `classifyQuality`
+   * for the warn_quality_mismatch check. Null means "general tag — skip
+   * the check."
+   */
+  quality: string | null
   /** File mtime in ms (cache key) */
   mtime: number
   /** File size in bytes (cache key) */
@@ -144,13 +151,16 @@ export interface QualityClassification {
   fits: boolean
 }
 
-/** Find the quality bucket whose name matches the category, or null. */
-function findBucket(category: string, buckets: QualityBucket[]): QualityBucket | null {
-  return buckets.find(b => b.name === category) ?? null
+/** Find the quality bucket whose name matches the quality, or null. */
+function findBucket(quality: string | null, buckets: QualityBucket[]): QualityBucket | null {
+  if (quality === null) return null
+  return buckets.find(b => b.name === quality) ?? null
 }
 
 /**
- * Check a video file's dimensions against the quality bucket for its category.
+ * Check a video file's dimensions against the quality bucket for the quality
+ * its category auto-detected to. Returns silent-pass when `quality` is null
+ * (general-tag category) or when no bucket matches the quality name.
  *
  * Uses the long edge (max of width and height) so a rotated or unusually
  * shaped file is classified by its largest dimension — a 1080x1920 vertical
@@ -162,10 +172,10 @@ function findBucket(category: string, buckets: QualityBucket[]): QualityBucket |
 export function classifyQuality(
   width: number,
   height: number,
-  category: string,
+  quality: string | null,
   buckets: QualityBucket[]
 ): QualityClassification {
-  const bucket = findBucket(category, buckets)
+  const bucket = findBucket(quality, buckets)
   const longEdge = Math.max(width, height)
 
   if (bucket === null) {

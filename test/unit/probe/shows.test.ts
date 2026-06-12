@@ -138,6 +138,39 @@ describe('probeShows', () => {
     expect(result.output).toEqual([])
   })
 
+  it('orders numeric seasons before named ones (seasonSortKey)', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        HD: {
+          'Show (2020)': {
+            Specials: { 'Show (2020) - S00E01.mp4': '' },
+            'Season 02': { 'Show (2020) - S02E01.mp4': '' },
+            'Season 10': { 'Show (2020) - S10E01.mp4': '' },
+            'Season 01': { 'Show (2020) - S01E01.mp4': '' },
+          },
+        },
+      },
+      probes: {
+        'HD/Show (2020)/Specials/Show (2020) - S00E01.mp4': fakeProbe({
+          video: { codec: 'h264', width: 1920, height: 1080, frame_rate: 24 },
+        }),
+        'HD/Show (2020)/Season 02/Show (2020) - S02E01.mp4': fakeProbe({
+          video: { codec: 'h264', width: 1920, height: 1080, frame_rate: 24 },
+        }),
+        'HD/Show (2020)/Season 10/Show (2020) - S10E01.mp4': fakeProbe({
+          video: { codec: 'h264', width: 1920, height: 1080, frame_rate: 24 },
+        }),
+        'HD/Show (2020)/Season 01/Show (2020) - S01E01.mp4': fakeProbe({
+          video: { codec: 'h264', width: 1920, height: 1080, frame_rate: 24 },
+        }),
+      },
+    })
+
+    const result = await probeShows({ root_path: root }, rules, cache, warnings)
+    // Numeric ASC, then named alphabetic — so "1", "2", "10", "Specials".
+    expect(result.output[0]?.seasons.map(s => s.season)).toEqual(['1', '2', '10', 'Specials'])
+  })
+
   it('formats single-episode and multi-episode IDs correctly', async () => {
     const { rules, root, cache, warnings } = setup({
       spec: {

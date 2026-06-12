@@ -160,7 +160,7 @@ Per-warning toggles live in `rules/<type>.yaml` under `checks.warn_*`. Every war
 | File title does not match folder title          | Title mismatch between the file name and its parent folder                                  |
 | File year does not match folder year            | Year mismatch between the file name and its parent folder                                   |
 | Duplicate edition                               | Two files in the same folder claim the same edition name                                    |
-| Movie exists in multiple categories             | Same movie copy lives in two unexpected categories (acceptable UHD/HD pairings excluded)    |
+| Movie exists in multiple qualities              | Same movie spans distinct qualities (whitelist via acceptable_quality_combos)               |
 | Loose video files                               | Video files directly in a category folder, not inside a Movie Title (YEAR)/ folder; skipped |
 | Unexpected subfolder in movie folder            | Subfolders inside a Movie Title (YEAR)/ folder; files inside are not scanned                |
 | Unexpected file                                 | File isn't video, isn't a recognized Plex sidecar, and isn't a known OS artifact            |
@@ -186,6 +186,7 @@ Per-warning toggles live in `rules/<type>.yaml` under `checks.warn_*`. Every war
 | Unexpected subfolder in season folder             | Subfolders inside a Season XX folder; files inside are not scanned                 |
 | Unexpected file                                   | File isn't video, isn't a recognized Plex sidecar, and isn't a known OS artifact   |
 | Quality mismatch                                  | File's derived quality (from dimensions) differs from its category name            |
+| Season exists in multiple qualities               | A single season spans distinct qualities (whitelist via acceptable_quality_combos) |
 | TMDB no match _(validate pass)_                   | TMDB found nothing matching the title + year                                       |
 | TMDB low confidence _(validate pass)_             | TMDB match score below the confidence threshold — review                           |
 | TMDB episode count _(validate pass)_              | Local season has fewer episodes than TMDB lists for that season                    |

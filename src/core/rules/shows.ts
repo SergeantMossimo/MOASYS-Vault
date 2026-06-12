@@ -63,6 +63,16 @@ export const ShowsRulesSchema = z.object({
     })
   ),
 
+  /**
+   * Per-season cross-quality combos that are intentional and should NOT
+   * trigger the multi-quality warning for a season. Examples: a series whose
+   * S01 you bought on DVD (SD) and S02-S08 on Bluray (HD) won't fire — those
+   * are different seasons in different qualities. The check fires only when
+   * a SINGLE season has copies in multiple qualities (e.g. you have S01 on
+   * both DVD and Bluray). Comparison is set-based — order doesn't matter.
+   */
+  acceptable_quality_combos: z.array(z.array(z.string())),
+
   /** Per-warning toggles. */
   checks: z.object({
     warn_non_primary: z.boolean(),
@@ -74,6 +84,12 @@ export const ShowsRulesSchema = z.object({
     warn_season_mismatch: z.boolean(),
     warn_episode_gaps: z.boolean(),
     warn_quality_mismatch: z.boolean(),
+    /**
+     * A SINGLE season exists in multiple distinct qualities (e.g. S01 is in
+     * both HD and SD). Per-season scope — different seasons in different
+     * qualities (S01 DVD, S02 Bluray) do NOT trigger this.
+     */
+    warn_multi_quality: z.boolean(),
     /**
      * Video files found at a level where the scanner expects a subfolder.
      * Examples: files directly in a media folder (no show), or directly in
@@ -147,6 +163,10 @@ export const defaultShowsRules: ShowsRules = ShowsRulesSchema.parse({
     '.idx',
   ],
   quality_thresholds: [],
+  // Neutral default mirroring movies: a UHD master + HD downscale of the same
+  // season is commonly intentional. Libraries can clear or extend this in
+  // shows.local.yaml.
+  acceptable_quality_combos: [['UHD', 'HD']],
   checks: {
     warn_non_primary: true,
     warn_no_videos: true,
@@ -157,6 +177,7 @@ export const defaultShowsRules: ShowsRules = ShowsRulesSchema.parse({
     warn_season_mismatch: true,
     warn_episode_gaps: true,
     warn_quality_mismatch: true,
+    warn_multi_quality: true,
     warn_loose_files: true,
     warn_extra_subfolders: true,
     warn_unexpected_entries: true,

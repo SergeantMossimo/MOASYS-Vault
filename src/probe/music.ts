@@ -138,6 +138,7 @@ function collectTasks(
               ),
               absolutePath,
               category: cat.name,
+              quality: cat.quality,
               mtime: stat.mtimeMs,
               size: stat.size,
             },

@@ -80,22 +80,83 @@ export type Category = z.infer<typeof CategorySchema>
  * Resolved internal form of a category — separates "what subfolder to walk"
  * from "what label to put on records." For configured categories these are
  * the same; for the synthetic root-walk case they differ ('' vs 'default').
+ *
+ * `quality` is auto-detected from the category name via the `UHD`/`HD`/`SD`
+ * vocabulary; null when no whole-word match is found. Movies and shows use
+ * this field for the quality-mismatch check and the multi-quality duplicate
+ * check; music and audiobooks ignore it.
  */
 export interface ResolvedCategory {
   /** Subfolder under root_path to walk; empty string means walk root_path itself. */
   folderName: string
   /** Label used in output records (the version's `category` field). */
   name: string
+  /** Auto-detected quality keyword (UHD/HD/SD), or null for general-tag categories. */
+  quality: string | null
+}
+
+/**
+ * The canonical quality vocabulary that `detectQuality` looks for in category
+ * names. Ordered UHD-first so a substring like "Other UHD" matches UHD rather
+ * than the contained "HD".
+ *
+ * This is hardcoded for now. If a future use case needs additional keywords
+ * (`4K`, `BluRay`, `DVD`, etc.), lift it into a configurable `quality_keywords`
+ * field on the rules schema; until then, keeping it constant means the
+ * detection rule is dead-simple to document and reason about.
+ */
+export const KNOWN_QUALITIES = ['UHD', 'HD', 'SD'] as const
+
+/**
+ * Sort an iterable of quality strings into a canonical order. Known qualities
+ * (UHD/HD/SD) sort first in best-to-worst order; anything outside the
+ * vocabulary lands after them in alphabetical order.
+ */
+export function sortQualities(qualities: Iterable<string>): string[] {
+  return [...qualities].sort((a, b) => {
+    const ia = (KNOWN_QUALITIES as readonly string[]).indexOf(a)
+    const ib = (KNOWN_QUALITIES as readonly string[]).indexOf(b)
+    if (ia === -1 && ib === -1) return a.localeCompare(b)
+    if (ia === -1) return 1
+    if (ib === -1) return -1
+    return ia - ib
+  })
+}
+
+/**
+ * Auto-detect a quality keyword from a category name. Uses whole-word,
+ * case-insensitive matching so:
+ *   - "UHD" / "Other UHD" / "Director's Cut UHD"  → "UHD"
+ *   - "HD" / "Other HD"                            → "HD"
+ *   - "SD" / "Other SD"                            → "SD"
+ *   - "USD" / "Standard" / "Documentary"           → null (no whole-word match)
+ *
+ * UHD is checked first so the "HD" inside "UHD" doesn't false-positive.
+ */
+export function detectQuality(categoryName: string): string | null {
+  for (const q of KNOWN_QUALITIES) {
+    if (new RegExp(`\\b${q}\\b`, 'i').test(categoryName)) return q
+  }
+  return null
 }
 
 /**
  * Resolve the effective category list for a media module.
  * If the rules supplied any categories, walk those. Otherwise return a single
  * synthetic entry that walks root_path and labels records "default".
+ *
+ * Each resolved entry includes a `quality` field — auto-detected via
+ * `detectQuality` from the category name. Music/audiobook category names
+ * (Music, Soundtracks, Audible, Book On CD, etc.) won't match the vocabulary
+ * so they get `quality: null` and are treated as general tags.
  */
 export function resolveCategories(configured: Category[]): ResolvedCategory[] {
   if (configured.length === 0) {
-    return [{ folderName: '', name: 'default' }]
+    return [{ folderName: '', name: 'default', quality: null }]
   }
-  return configured.map(c => ({ folderName: c.name, name: c.name }))
+  return configured.map(c => ({
+    folderName: c.name,
+    name: c.name,
+    quality: detectQuality(c.name),
+  }))
 }

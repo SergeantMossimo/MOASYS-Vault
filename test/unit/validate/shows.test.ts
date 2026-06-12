@@ -441,6 +441,62 @@ describe('validateShows — warnings', () => {
     expect(warnings.all().some(w => w.issue.match(/canonical title/i))).toBe(true)
   })
 
+  it('warn_tmdb_low_confidence includes Alternatives: text when alternate candidates are cached', async () => {
+    const client = mockClient({
+      searchResults: [
+        {
+          id: 1,
+          name: 'The Big Adventure Show',
+          original_name: 'The Big Adventure Show',
+          first_air_date: '2020-01-01',
+          popularity: 100,
+        },
+        {
+          id: 2,
+          name: 'Adventure Time',
+          original_name: 'Adventure Time',
+          first_air_date: '2010-01-01',
+          popularity: 5,
+        },
+      ],
+      details: {
+        1: {
+          id: 1,
+          name: 'The Big Adventure Show',
+          original_name: 'The Big Adventure Show',
+          first_air_date: '2020-01-01',
+          number_of_seasons: 0,
+          number_of_episodes: 0,
+          seasons: [],
+        },
+      },
+    })
+    const detailsCache = memoryCache<TmdbShowDetails>({
+      '2': {
+        id: 2,
+        name: 'Adventure Time',
+        original_name: 'Adventure Time',
+        first_air_date: '2010-01-01',
+        number_of_seasons: 0,
+        number_of_episodes: 0,
+        seasons: [],
+      },
+    })
+
+    await validateShows(
+      [show('Adventure', 2020)],
+      defaultShowsRules,
+      client,
+      memoryCache(),
+      detailsCache,
+      warnings
+    )
+
+    const lowWarn = warnings.all().find(w => w.issue.match(/low-confidence/i))
+    expect(lowWarn?.issue).toMatch(/Alternatives:/)
+    expect(lowWarn?.issue).toContain("'Adventure Time'")
+  })
+
   it('silences each toggleable warning when set to false', async () => {
     const rules: ShowsRules = {
       ...defaultShowsRules,

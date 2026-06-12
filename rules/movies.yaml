@@ -23,10 +23,15 @@ patterns:
 
 # ── Categories ──────────────────────────────────────────────────────────────
 # Subfolders under root_path to walk. Each category's `name` is both the
-# folder name on disk AND the label used in output JSON (the `category` field
-# on each version). Empty (the default) means: walk root_path directly and
-# label records as "default". For a library with quality buckets, put your
-# folder names here (or in your movies.local.yaml).
+# folder name on disk AND the label used in output JSON. Empty (the default)
+# means: walk root_path directly and label records as "default".
+#
+# Quality auto-detection: names containing UHD / HD / SD (whole-word, case-
+# insensitive, UHD-first) auto-resolve to that quality keyword and participate
+# in warn_quality_mismatch + warn_multi_quality checks. Other names ("Other
+# UHD", "Other HD", "Other SD" all match). Names without those keywords
+# (e.g. "Documentary") are general tags — quality checks don't apply.
+# See docs/CONFIG.md "Three configuration shapes".
 categories: []
 
 # ── File extensions ─────────────────────────────────────────────────────────
@@ -77,11 +82,11 @@ sidecar_extensions:
   - .idx
 
 # ── Quality buckets (ffprobe pass) ──────────────────────────────────────────
-# Each bucket's `name` must match a category name to take effect. A file in
-# a category whose name appears here is checked: its long edge (max of width
-# and height) must fall in [min_width, max_width]. Either bound is optional.
-# Categories whose name doesn't appear here (e.g. "Other UHD") are silently
-# passed — the warning is opt-in by bucket configuration.
+# Each bucket's `name` is a quality keyword (UHD / HD / SD) that categories
+# auto-resolve to via whole-word matching. A file in any category whose
+# auto-detected quality matches a bucket is checked: long edge must fall in
+# [min_width, max_width]. Either bound is optional. General-tag categories
+# (no UHD/HD/SD substring) resolve to null and are silently passed.
 # Empty default = silent. Configure for your library in movies.local.yaml.
 quality_thresholds: []
 
