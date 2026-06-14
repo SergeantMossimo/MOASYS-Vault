@@ -106,7 +106,7 @@ Docs are split between README and `docs/`. When the user asks something or you n
 - **docs/CONFIG.md** — `config.json` + `rules/<type>.yaml` reference, override mechanism, `.secrets.json` setup
 - **docs/CONVENTIONS.md** — Plex folder/file naming per media type (hierarchies, examples, gotchas)
 - **docs/SCANS.md** — Runbook for scan / probe / validate. Suggested workflow + re-run scenarios.
-- **docs/REFERENCE.md** — Output file shapes + complete warning tables per media type
+- **docs/OUTPUT.md** — Output file shapes + complete warning tables per media type
 
 When you add a new feature/warning/rule, update the relevant docs/ file AND any related warning table. Don't put deep reference content in README — it's intentionally lean.
 

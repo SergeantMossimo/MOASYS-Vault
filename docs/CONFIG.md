@@ -4,8 +4,9 @@ Configuration is split between two layers:
 
 - **`config.json`** — the per-machine path to each media library. The bare minimum to point the scanner at your files.
 - **`rules/<type>.yaml`** — everything about how your library is organized: which subfolders to scan, file extensions, regex patterns, year ranges, ignored season names, sidecar lists, per-warning toggles.
+  - Types include: movies, shows, music, and audiobooks
 
-Sensible Plex defaults ship in code for every rules field. You only edit `rules/<type>.yaml` to override something. `config.json` you always edit (to set `root_path`).
+Each rules file contains the default rules for its media type. You only need to edit a rules file if you want to override a default.
 
 ---
 
@@ -28,20 +29,20 @@ One section per media type, each with one field:
 - **macOS:** `"/Volumes/Movies"`
 - **Linux:** `"/mnt/nas/Movies"`
 
-The scanner walks the subfolders defined in `rules/<type>.yaml` under `categories`, or — if `categories` is empty — walks `root_path` directly and labels every record's category as `"default"`.
+The scanner walks the subfolders defined in the rules files under `categories`, or — if `categories` is empty in the rules file — it walks `root_path` directly and labels every record's category as `"default"`.
 
 That's it for `config.json`. Everything else lives in `rules/<type>.yaml`.
 
 ---
 
-## Rules: `rules/<type>.yaml` and `rules/<type>.local.yaml`
+## Rules: `<type>.yaml` and `<type>.local.yaml`
 
-Each media type has up to two files:
+Each media type has up to two files that live in the `rules` folder:
 
 ```text
 rules/
-├── movies.yaml             ← committed defaults (every option visible, uncommented)
-├── movies.local.yaml       ← gitignored personal overrides (optional)
+├── movies.yaml             ← default configuration
+├── movies.local.yaml       ← personal overrides (optional)
 ├── shows.yaml
 ├── shows.local.yaml
 ├── music.yaml
@@ -62,6 +63,8 @@ Top to bottom, each layer wins over the one above:
 code defaults  →  rules/<type>.yaml  →  rules/<type>.local.yaml  →  Zod-validated result
 ```
 
+Note: Zod is a configuration validator that catches typos and bad values in your rules files before the scanner runs — so a misnamed key or wrong type fails at startup with a clear message instead of crashing partway through a scan.
+
 Boot-time logs make it clear which files contributed:
 
 ```text
@@ -70,40 +73,13 @@ Boot-time logs make it clear which files contributed:
 [RULES] Using code defaults (no rules/audiobooks.yaml found)
 ```
 
-### What's configurable
-
-- **`categories`** — list of `{ name }` entries for subfolders under `root_path` to scan. The `name` is both the literal folder name on disk AND the label that appears in each version's `category` field. Leave empty (or commented) to scan `root_path` directly and label everything `"default"` — useful for flat libraries.
-- **`patterns`** — regex with named capture groups for parsing folder and file names. Each pattern can be a plain string or `{ pattern, flags }` for case-insensitive or other regex flags.
-- **`primary_extension`** — the formats you expect for this media type. Files with any other extension trigger `warn_non_primary` (so you can spot ones that need re-encoding).
-- **`video_extensions` / `audio_extensions`** — every extension the scanner recognizes as that media type. Anything outside this list AND outside `sidecar_extensions` triggers `warn_unexpected_entries`.
-- **`sidecar_extensions`** — file extensions silently allowed alongside media (Plex NFO, posters, subtitles for video; cover art, lyrics, PDF booklets for audio).
-- **Per-type constants:**
-  - Movies — `year_range` (min/max plausible film year, `max: current` resolves to this year), `acceptable_quality_combos` (cross-category pairings that shouldn't warn), `quality_thresholds` (pixel-range buckets keyed by category name).
-  - Shows — `ignored_season_names` (Plex special-season folders to accept, e.g. `Specials`), `quality_thresholds`.
-  - Music and audiobooks — patterns and extensions only (no extra constants).
-- **`quality_thresholds`** (movies + shows) — each bucket's `name` matches an auto-detected quality keyword (`UHD`, `HD`, or `SD`) extracted from category names via whole-word matching. So `Other UHD` resolves to quality `UHD` and gets checked against the `UHD` bucket. Categories with no UHD/HD/SD substring (`Documentary`, `Music`, etc.) are general-purpose tags — `warn_quality_mismatch` doesn't apply to them. See the [Three configuration shapes](#three-configuration-shapes) section below.
-- **`acceptable_quality_combos`** (movies + shows) — list of quality sets that are explicitly OK to coexist. After category-to-quality mapping, a movie in `{Other UHD, Other HD}` resolves to quality set `{UHD, HD}` and is silenced by a single `[UHD, HD]` combo. For shows, the combo applies per-season (different seasons in different qualities are fine on their own).
-- **`checks`** — per-warning toggles. Set any `warn_*` field to `false` to silence that warning without changing code.
-
-### Validation
-
-Rules are validated at startup against a Zod schema. If your YAML has a typo, wrong type, or invalid regex, you get a clear error before any scanning happens:
-
-```text
-Error: rules/movies.yaml failed schema validation:
-  - year_range.min: Expected number, received string
-  - patterns.folder: must be a valid regular expression
-```
-
-The defaults live in code at `src/core/rules/<type>.ts` alongside the schema, so changes ship as a single coordinated update.
-
 ---
 
 ## Three configuration shapes
 
-How you set up `categories` (and the related `quality_thresholds` / `acceptable_quality_combos`) depends on what you want the scanner to do with each subfolder. There are three common shapes:
+Before diving into individual settings, here are the three common ways people organize categories. Knowing which shape fits your library makes the settings reference below much easier to navigate.
 
-### A. Quality-organized categories (e.g. your movies + shows by UHD/HD/SD)
+### A. Quality-organized categories (e.g. movies + shows by UHD/HD/SD)
 
 You have subfolders like `UHD/`, `HD/`, `SD/`, possibly with `Other UHD/`, `Other HD/`, `Other SD/` variants. You want the scanner to:
 
@@ -133,7 +109,7 @@ acceptable_quality_combos:
 
 **Quality auto-detection rule**: each category name is scanned for the whole-word, case-insensitive substring `UHD`, `HD`, or `SD` (UHD checked first so it wins over the contained `HD`). Matching is on word boundaries — `USD`, `Standard`, or `Hi-Def` do NOT match.
 
-### B. General-purpose tag categories (e.g. your audiobooks: Audible, Book On CD)
+### B. General-purpose tag categories (e.g. audiobooks: Audible, Book On CD)
 
 Your subfolder names are concepts (a format, an imprint, a vendor) that aren't quality buckets. You want each record tagged with which folder it's in, but no dimension checks should apply.
 
@@ -145,10 +121,7 @@ categories:
   - { name: Audible }
   - { name: Other Audible }
   - { name: Book On CD }
-# Leave quality_thresholds out / empty — nothing to check against.
-# acceptable_quality_combos doesn't exist on audiobooks; warn_duplicate_book
-# fires for any cross-category dup. Use `ignored/audiobooks.yaml` for
-# legitimate exceptions.
+# quality_thresholds and acceptable_quality_combos are not used in this scenario
 ```
 
 Because none of these names contain `UHD`/`HD`/`SD`, all categories resolve to `quality: null`. `warn_quality_mismatch` never fires. `warn_duplicate_book` still fires if the same book exists across multiple categories.
@@ -167,14 +140,234 @@ The scanner walks `root_path` directly and labels every record's category as `"d
 
 ---
 
+## Settings reference
+
+Each setting lives in `rules/<type>.yaml`. For each one below: what it is, why you'd change it, which warnings it controls, and a typical override.
+
+### `patterns`
+
+**Applies to:** all four types.
+
+**What it is:** Regular expressions with named capture groups that tell the scanner how to parse your folder and file names. Each pattern can be a plain string or `{ pattern, flags }` if you need flags like case-insensitive matching.
+
+**Why you'd change it:** Your library uses a different naming convention than Plex's defaults. Most users won't touch this.
+
+**Related warnings:** anything that flags a name that doesn't match the expected format — `warn_bad_file_name`, `warn_bad_folder_name`, `warn_bad_show_folder`, `warn_bad_season_folder`, `warn_bad_artist_folder`, `warn_bad_album_folder`, `warn_bad_chapter_name`.
+
+**Example:**
+
+```yaml
+patterns:
+  folder: '^(?<title>.+)\s\((?<year>\d{4})\)$' # The Crow (1994)
+  file: '^(?<title>.+)\s\((?<year>\d{4})\)$' # The Crow (1994).mp4
+```
+
+---
+
+### `categories`
+
+**Applies to:** all four types.
+
+**What it is:** A list of subfolder names under `root_path` that the scanner walks. Each category's `name` is both the folder name on disk AND the label that appears on each catalog entry.
+
+**Why you'd change it:** To tell the scanner which subfolders to look in and how to organize the output. See [Three configuration shapes](#three-configuration-shapes) above to pick the right shape for your library.
+
+**Related warnings:** `warn_quality_mismatch`, `warn_multi_quality`, `warn_duplicate_album`, `warn_duplicate_book` all depend on how you set this up.
+
+**Example:**
+
+```yaml
+categories:
+  - { name: UHD }
+  - { name: HD }
+  - { name: Other UHD }
+```
+
+---
+
+### `primary_extension`
+
+**Applies to:** all four types.
+
+**What it is:** The file format(s) you consider canonical for this media type. Movies might be `.mp4`; music might be `.flac`.
+
+**Why you'd change it:** You've standardized on a different format and want to spot stragglers that don't match.
+
+**Related warnings:** `warn_non_primary` — fires when a file uses a different extension from the primary list. Useful for finding files you may want to re-encode.
+
+**Example:**
+
+```yaml
+primary_extension:
+  - .mp4
+```
+
+---
+
+### `video_extensions` / `audio_extensions`
+
+**Applies to:** `video_extensions` on movies + shows; `audio_extensions` on music + audiobooks.
+
+**What it is:** Every file extension the scanner recognizes as media for this type. Anything outside this list AND outside `sidecar_extensions` is flagged as unexpected.
+
+**Why you'd change it:** Your library uses a format the defaults don't include (e.g. `.webm`, `.ogg`).
+
+**Related warnings:** `warn_unexpected_entries` — fires when a file isn't media, isn't a sidecar, and isn't a known OS artifact like `Thumbs.db`.
+
+**Example:**
+
+```yaml
+video_extensions:
+  - .mp4
+  - .mkv
+  - .avi
+  - .webm
+```
+
+---
+
+### `sidecar_extensions`
+
+**Applies to:** all four types.
+
+**What it is:** Non-media file extensions that are OK to find alongside your media — Plex sidecar files like `.nfo` metadata, `.srt` subtitles, `.jpg` poster art, lyrics, PDF booklets, etc.
+
+**Why you'd change it:** You have a sidecar type the defaults don't include and you're tired of seeing it flagged as unexpected.
+
+**Related warnings:** `warn_unexpected_entries` — adding an extension here removes those files from the unexpected-entries flag.
+
+**Example:**
+
+```yaml
+sidecar_extensions:
+  - .nfo
+  - .srt
+  - .jpg
+```
+
+---
+
+### `year_range`
+
+**Applies to:** movies only.
+
+**What it is:** The minimum and maximum years a movie's release can plausibly be. `max: current` resolves to the current calendar year so you don't have to bump it every January.
+
+**Why you'd change it:** To relax or tighten the plausibility check (e.g. you have very early silent films from before 1888).
+
+**Related warnings:** `warn_suspicious_year` — fires when a movie's year falls outside this range.
+
+**Example:**
+
+```yaml
+year_range:
+  min: 1888
+  max: current
+```
+
+---
+
+### `ignored_season_names`
+
+**Applies to:** shows only.
+
+**What it is:** Season folder names that bypass the `Season XX` regex check. Plex's standard `Specials` folder belongs here, plus any one-off named seasons your library uses (e.g. `Champion of Champions`).
+
+**Why you'd change it:** Your library has named seasons that don't fit the numeric `Season XX` pattern and you don't want them flagged.
+
+**Related warnings:** `warn_bad_season_folder` — bypassed for the folder names listed here.
+
+**Example:**
+
+```yaml
+ignored_season_names:
+  - Specials
+  - Champion of Champions
+```
+
+---
+
+### `quality_thresholds`
+
+**Applies to:** movies + shows. **Only useful if your `categories` are organized by quality** (see [shape A above](#a-quality-organized-categories-eg-movies--shows-by-uhdhdsd)). If you're using general-purpose tag categories or a flat library, leave this empty.
+
+**What it is:** Pixel-range buckets that define what `UHD`, `HD`, and `SD` mean dimensionally. Each bucket's `name` matches an auto-detected quality keyword from your category names (e.g. `Other UHD` resolves to quality `UHD` and gets checked against the `UHD` bucket). For each file, the scanner takes its long edge — the max of its width and height — and checks that it falls in the bucket's range.
+
+**Why you'd change it:** Your library's idea of HD or UHD differs from the defaults, or you want to opt in to or out of the dimension check entirely.
+
+**Related warnings:** `warn_quality_mismatch` — fires when a file's actual dimensions don't fit the bucket its category's auto-detected quality implies.
+
+**Example:**
+
+```yaml
+quality_thresholds:
+  - { name: UHD, min_width: 2000 }
+  - { name: HD, min_width: 1000, max_width: 2000 }
+  - { name: SD, max_width: 1000 }
+```
+
+---
+
+### `acceptable_quality_combos`
+
+**Applies to:** movies + shows. **Only useful if your `categories` are organized by quality** (see [shape A above](#a-quality-organized-categories-eg-movies--shows-by-uhdhdsd)). If you don't use quality categories, this setting does nothing.
+
+**What it is:** A list of quality sets that are explicitly OK to coexist for a single item. After category-to-quality mapping, a movie that lives in both `Other UHD` and `Other HD` resolves to the quality set `{UHD, HD}` — listing `[UHD, HD]` here tells the scanner that's an intentional pair, not a hygiene problem. For shows, the same logic applies per-season (different seasons in different qualities are fine on their own).
+
+**Why you'd change it:** You intentionally keep multiple-quality copies of some items (e.g. a 4K master and a 1080p downscale for travel devices).
+
+**Related warnings:** `warn_multi_quality` — silenced when an item's quality set matches a combo listed here.
+
+**Example:**
+
+```yaml
+acceptable_quality_combos:
+  - [UHD, HD]
+```
+
+---
+
+### `checks`
+
+**Applies to:** all four types.
+
+**What it is:** A flat table of per-warning toggles. Every warning the scanner can emit has a corresponding `warn_*` boolean here. Set one to `false` to silence that warning across the board.
+
+**Why you'd change it:** You've decided a particular warning isn't useful for your library and want to suppress it globally. To silence warnings on specific paths only, use [`ignored/<type>.yaml`](#ignoredtypeyaml--silencing-specific-warnings) instead.
+
+**Related warnings:** all of them. See [Output](OUTPUT.md) for the complete warning catalog per media type.
+
+**Example:**
+
+```yaml
+checks:
+  warn_non_primary: false # silence the "you should re-encode this" nag
+```
+
+---
+
+### Validation
+
+Rules are validated at startup against a Zod schema. If your YAML has a typo, wrong type, or invalid regex, you get a clear error before any scanning happens:
+
+```text
+Error: rules/movies.yaml failed schema validation:
+  - year_range.min: Expected number, received string
+  - patterns.folder: must be a valid regular expression
+```
+
+The defaults live in code at `src/core/rules/<type>.ts` alongside the schema, so changes ship as a single coordinated update.
+
+---
+
 ## `ignored/<type>.yaml` — silencing specific warnings
 
 For warnings you can't or don't want to fix (an incomplete season that never aired, a folder name you've decided not to change), drop a per-type ignore file in the `ignored/` folder. It's a flat list of path prefixes — any warning whose `path` matches one is silently dropped from `warnings.json` and counted in the run summary.
 
 ```text
 ignored/
-├── movies.yaml.example         ← committed, reference (commented examples)
-├── movies.yaml                 ← gitignored, what the user actually writes
+├── movies.yaml.example         ← reference files with commented examples
+├── movies.yaml                 ← file for user's ignore list
 ├── shows.yaml.example
 ├── shows.yaml
 ├── music.yaml.example
@@ -187,18 +380,18 @@ Each `.yaml.example` ships with commented usage patterns. To use: copy it to `<t
 
 ```yaml
 # ignored/shows.yaml — gitignored, per-user
-- HD/Channel 4 Catchup (2024) # silences every warning under this show
-- HD/Some Show (2020)/Season 2 # silences just one season
-- SD/Old VHS Rip (1995)
+- Channel 4 Catchup (2024) # silences every warning under this show
+- Some Show (2020)/Season 2 # silences just one season
+- Old VHS Rip (1995)
 ```
 
 Matching rules:
 
-- **Prefix-based**: an entry like `HD/Show (2020)` silences `HD/Show (2020)` itself plus everything under it (`HD/Show (2020)/Season 1`, `HD/Show (2020)/Season 1/file.mp4`).
-- **Path-boundary respected**: `HD/Show` does _not_ silence `HD/Show 2 (2020)` — the prefix has to be followed by `/` or be an exact match.
-- **Case-insensitive + separator-normalized**: `HD/Show` matches both `HD/Show/...` and `hd\show\...`, so the same file works on Windows and macOS/Linux.
+- **Prefix-based**: an entry like `Show (2020)` silences `Show (2020)` itself plus everything under it (`Show (2020)/Season 1`, `Show (2020)/Season 1/file.mp4`).
+- **Path-boundary respected**: `Show` does _not_ silence `Show 2 (2020)` — the prefix has to be followed by `/` or be an exact match.
+- **Case-insensitive + separator-normalized**: `Show` matches both `Show/...` and `show\...`, so the same file works on Windows and macOS/Linux.
 
-Get path values from `output/<type>/warnings.json` (and `validation-warnings.json` for movies/shows). The `<type>.yaml` files are **gitignored** since they encode per-library decisions that don't belong in the shared repo. Missing or comments-only files are treated as "no ignores."
+The `<type>.yaml` files are **gitignored** since they encode per-library decisions that don't belong in the shared repo. Missing or comments-only files are treated as "no ignores."
 
 The run summary surfaces how many warnings were silenced:
 
@@ -210,12 +403,12 @@ Done — 131 entries, 18 warnings, 5 silenced via ignore list.
 
 ## `.secrets.json`
 
-The TMDB validation pass ([docs/SCANS.md](SCANS.md)) needs an API key. It lives in `.secrets.json` at the project root, gitignored.
+The TMDB validation pass ([Scans](SCANS.md)) needs an API key. It lives in `.secrets.json` at the project root. The file is gitignored so that you don't end up sharing your API key.
 
 To set it up:
 
-1. Get a free v3 API key from <https://www.themoviedb.org/settings/api>
-2. Copy the template: `cp .secrets.json.example .secrets.json`
+1. Sign up for a free TMDB v3 API key — getting-started docs: <https://developer.themoviedb.org/docs/getting-started>
+2. Copy `.secrets.json.example` to a new file called `.secrets.json`.
 3. Paste your key into the `tmdb.api_key` field
 
 ```json

@@ -1,18 +1,15 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # MOASYS-Vault — Shows rules (defaults)
 # ─────────────────────────────────────────────────────────────────────────────
+# Edit a value to change the project-wide default. Comment a line out to fall
+# back to the code default. Library-specific overrides belong in
+# `rules/shows.local.yaml`, which is gitignored.
 #
-# This file is a snapshot of the code-shipped defaults. Edit a value to
-# change the project-wide default. Comment a line out to fall back to the
-# current code default.
-#
-# Personal overrides (extra ignored_season_names, custom quality_thresholds,
-# categories) belong in `rules/shows.local.yaml` — gitignored.
-#
-# Loader behavior:  code defaults  →  this file  →  shows.local.yaml  →  Zod
+# Full reference: docs/CONFIG.md
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Regex patterns ──────────────────────────────────────────────────────────
+# ── Folder + file name patterns ─────────────────────────────────────────────
+# Plex's TV naming convention. Patterns use named capture groups.
 patterns:
   show_folder: '^(?<title>.+)\s\((?<year>\d{4})\)$'                                # Star Trek Enterprise (2001)
   season_folder:
@@ -22,22 +19,36 @@ patterns:
     pattern: '^(?<title>.+)\s\((?<year>\d{4})\)\s-\sS(?<season>\d{2})E(?<episode>\d{2})(?:-E?(?<episode_end>\d{2}))?(?:\s-\s.+)?$'
     flags: 'i'
 
-# ── Categories ──────────────────────────────────────────────────────────────
-# Subfolders under root_path to walk. Each category's `name` is both the
-# folder name on disk AND the label used in output JSON. Empty (the default)
-# means: walk root_path directly and label records as "default".
+# ── Subfolders under root_path to walk ──────────────────────────────────────
+# Empty (the default) = scan root_path directly and label everything as
+# "default". Configure for your library in shows.local.yaml.
 #
-# Quality auto-detection: names containing UHD / HD / SD (whole-word, case-
-# insensitive, UHD-first) auto-resolve to that quality and participate in
-# warn_quality_mismatch + warn_multi_quality (per-season) checks. Names
-# without those keywords are general tags — quality checks don't apply.
-# See docs/CONFIG.md "Three configuration shapes".
+# Common use cases:
+#
+#   # A. Organized by quality (UHD/HD/SD auto-detected):
+#   categories:
+#     - { name: UHD }
+#     - { name: HD }
+#     - { name: SD }
+#
+#   # B. Organized by general tags (no quality concept):
+#   categories:
+#     - { name: Shows }
+#     - { name: Anime }
+#     - { name: Documentaries }
+#
+#   # C. Flat library (no subfolders):
+#   categories: []
+#
+# See docs/CONFIG.md "Three configuration shapes" for the full explanation.
 categories: []
 
 # ── File extensions ─────────────────────────────────────────────────────────
+# Primary = formats you prefer (others fire warn_non_primary).
 primary_extension:
   - .mp4
 
+# Video = every extension recognized as an episode file.
 video_extensions:
   - .mp4
   - .mkv
@@ -48,13 +59,12 @@ video_extensions:
   - .ts
   - .m2ts
 
-# ── Special-season folder names ─────────────────────────────────────────────
-# Season folder names that bypass the Season XX regex check. Plex's universal
-# convention is `Specials`.
+# Special-season folder names that bypass the `Season XX` regex.
+# Plex's universal convention is `Specials`.
 ignored_season_names:
   - Specials
 
-# ── Sidecar files ───────────────────────────────────────────────────────────
+# Sidecar = silently allowed alongside episodes (poster art, subtitles, NFOs).
 sidecar_extensions:
   - .nfo
   - .jpg
@@ -69,19 +79,23 @@ sidecar_extensions:
   - .sub
   - .idx
 
-# ── Quality buckets (ffprobe pass) ──────────────────────────────────────────
-# Empty default = silent. Configure for your library in shows.local.yaml.
+# ── Quality buckets ─────────────────────────────────────────────────────────
+# Only used when categories are organized by quality (shape A above).
+# Defines what UHD / HD / SD mean dimensionally. Empty default = no
+# dimension checks fire. Configure in shows.local.yaml.
 quality_thresholds: []
 
 # ── Acceptable per-season multi-quality combos ──────────────────────────────
-# Quality sets a single season is allowed to span without triggering
-# warn_multi_quality. Different seasons in different qualities never fire
-# (per-season scope); this whitelists pairings within ONE season — e.g.
-# keeping both UHD and HD copies of S01.
+# Only used when categories are organized by quality (shape A above).
+# Lists quality sets a single season may legitimately span without firing
+# warn_multi_quality. Scope is per-season — keeping S01 in HD and S02 in UHD
+# never fires; only S01 existing in BOTH UHD and HD does.
 acceptable_quality_combos:
   - [UHD, HD]
 
 # ── Per-warning toggles ─────────────────────────────────────────────────────
+# Set any to false to silence that warning everywhere. To silence on specific
+# paths only, use ignored/shows.yaml instead.
 checks:
   warn_non_primary: true          # File isn't the configured primary format
   warn_no_videos: true            # Season folder has no video files
@@ -91,7 +105,7 @@ checks:
   warn_show_year_mismatch: true   # File's show/year vs parent show folder
   warn_season_mismatch: true      # File's season number vs parent season folder
   warn_episode_gaps: true         # Gap detected in episode numbers
-  warn_quality_mismatch: true     # ffprobe dimensions don't fit quality_thresholds bucket
+  warn_quality_mismatch: true     # File dimensions don't fit its category's quality bucket
   warn_multi_quality: true        # A single season exists in multiple distinct qualities
   warn_loose_files: true          # Video files at unexpected nesting
   warn_extra_subfolders: true     # Unexpected subfolders inside a season folder

@@ -1,33 +1,44 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # MOASYS-Vault — Audiobooks rules (defaults)
 # ─────────────────────────────────────────────────────────────────────────────
+# Edit a value to change the project-wide default. Comment a line out to fall
+# back to the code default. Library-specific overrides belong in
+# `rules/audiobooks.local.yaml`, which is gitignored.
 #
-# This file is a snapshot of the code-shipped defaults. Edit a value to
-# change the project-wide default. Comment a line out to fall back to the
-# current code default.
-#
-# Personal overrides belong in `rules/audiobooks.local.yaml` — gitignored.
-#
-# Loader behavior:  code defaults  →  this file  →  audiobooks.local.yaml  →  Zod
+# Full reference: docs/CONFIG.md
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Regex patterns ──────────────────────────────────────────────────────────
-# Chapter files: scanner tries multi_disc first, then single_disc.
+# ── Chapter file patterns ───────────────────────────────────────────────────
+# Scanner tries multi_disc first, then falls back to single_disc.
 patterns:
-  single_disc: '^(?<chapter>\d{2})\s-\s(?<name>.+)$'
-  multi_disc:  '^(?<disc>\d+)(?<chapter>\d{2})\s-\s(?<name>.+)$'
+  single_disc: '^(?<chapter>\d{2})\s-\s(?<name>.+)$'             # 01 - Chapter Name
+  multi_disc:  '^(?<disc>\d+)(?<chapter>\d{2})\s-\s(?<name>.+)$' # 101 - Chapter Name (disc 1, chapter 1)
 
-# ── Categories ──────────────────────────────────────────────────────────────
-# Subfolders under root_path to walk. Each category's `name` is both the
-# folder name on disk AND the label used in output JSON. Empty (the default)
-# means: walk root_path directly and label records as "default".
+# ── Subfolders under root_path to walk ──────────────────────────────────────
+# Empty (the default) = scan root_path directly and label everything as
+# "default". Configure for your library in audiobooks.local.yaml.
+#
+# Common use cases:
+#
+#   # A. Organized by source / format:
+#   categories:
+#     - { name: Audible }
+#     - { name: Book On CD }
+#
+#   # B. Flat library (no subfolders):
+#   categories: []
+#
+# Note: audiobooks don't use quality-organized categories — spoken word at
+# modest bitrates is fine, so no quality dimension check applies.
 categories: []
 
 # ── File extensions ─────────────────────────────────────────────────────────
+# Primary = formats you prefer (others fire warn_non_primary).
 primary_extension:
   - .mp3
   - .flac
 
+# Audio = every extension recognized as an audiobook chapter.
 audio_extensions:
   - .m4b
   - .mp3
@@ -35,7 +46,7 @@ audio_extensions:
   - .m4a
   - .flac
 
-# ── Sidecar files ───────────────────────────────────────────────────────────
+# Sidecar = silently allowed alongside chapters (cover art, cuesheets, PDFs).
 sidecar_extensions:
   - .nfo
   - .jpg
@@ -46,6 +57,8 @@ sidecar_extensions:
   - .pdf
 
 # ── Per-warning toggles ─────────────────────────────────────────────────────
+# Set any to false to silence that warning everywhere. To silence on specific
+# paths only, use ignored/audiobooks.yaml instead.
 checks:
   warn_non_primary: true        # File isn't the configured primary format
   warn_no_audio: true           # Book folder has no audio files
