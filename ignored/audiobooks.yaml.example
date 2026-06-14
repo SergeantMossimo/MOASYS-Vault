@@ -1,33 +1,42 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# MOASYS-Vault — Audiobooks ignore list (EXAMPLE / REFERENCE FILE)
+# MOASYS-Vault — Audiobooks ignore list (EXAMPLE)
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# Copy this file to `ignored/audiobooks.yaml` (drop the `.example` suffix)
-# and uncomment / edit entries below as needed. The real `audiobooks.yaml`
-# is gitignored so personal library decisions don't leak into the repo.
+# A "do not warn me about this" list for your audiobooks library. Anything
+# you put here gets silently dropped from output/audiobooks/warnings.json on
+# every run.
 #
-# Each entry is a path prefix. Any audiobooks-pass warning whose `path`
-# field starts with one of these (followed by `/` or end-of-string,
-# case-insensitive, separator-normalized) gets silently dropped from
-# `output/audiobooks/warnings.json` (and counted in the run summary).
+# How to use this file:
+#   1. Copy this file to `ignored/audiobooks.yaml` (drop the `.example`
+#      suffix). The real `audiobooks.yaml` is gitignored so your personal
+#      decisions don't end up in version control.
+#   2. Add path prefixes below — one per line.
+#   3. Re-run `npm run audiobooks`. Matching warnings disappear from output.
 #
-# Get paths from `output/audiobooks/warnings.json`. Most audiobook warnings
-# use the `<Author>/<Book>` path shape.
+# How matching works: each entry is a path PREFIX. A warning whose `path`
+# starts with one of these (slash- or end-of-string-bounded) is silenced.
+# Matching is case-insensitive and forward-slash-normalized, so it works on
+# Windows and macOS/Linux libraries alike.
+#
+# Get the paths to add from output/audiobooks/warnings.json. Most audiobook
+# warnings use the `<Author>/<Book>` path shape.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Silence a single book ───────────────────────────────────────────────────
-# Drops every warning under this book's folder. Useful for a book with
-# known missing chapters or a chapter naming inconsistency you've decided
-# to keep.
+
+# Silence one book
+# (Drops every warning under this book's folder. Useful for a book with
+# known missing chapters or chapter naming you've decided to keep.)
 # - J.R.R. Tolkien/The Lord of the Rings
 # - Terry Pratchett/Discworld 41
 
-# ── Silence by category ─────────────────────────────────────────────────────
-# Drop ALL warnings under a category folder.
+
+# Silence a whole category folder
+# (Drops EVERY warning under this folder.)
 # - Other Audible
 # - Book On CD
 
-# ── Silence a whole author ──────────────────────────────────────────────────
-# Rare — usually only when you have a single author's catalog where every
-# book has the same recurring issue.
+
+# Silence a whole author
+# (Rare — usually only useful when one author's catalog has the same
+# recurring issue across every book.)
 # - Some Author

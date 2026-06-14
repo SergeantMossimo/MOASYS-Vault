@@ -1,77 +1,35 @@
 {
+  // MOASYS-Vault TypeScript config.
+  // Targets Node.js (no DOM). Strict mode is non-negotiable — the project
+  // bans `any` and uses noUncheckedIndexedAccess to make array access safe.
+
   "compilerOptions": {
-    // ── Output target ────────────────────────────────────────────────────
-    // The JavaScript version to compile down to.
-    // ES2020 gives us modern features (optional chaining, nullish coalescing,
-    // BigInt, Promise.allSettled) while staying compatible with Node.js 14+.
     "target": "ES2020",
-
-    // The module system to use. "commonjs" is Node.js's traditional system
-    // (require/module.exports). We use this because tsx and ts-node both
-    // work best with commonjs. Switch to "NodeNext" if moving to ESM later.
     "module": "commonjs",
-
-    // Which built-in type definitions to include. "ES2020" gives us types
-    // for all ES2020 APIs (Promise, Map, Set, etc.). We omit "dom" since
-    // this is a Node.js project — no browser APIs needed.
     "lib": ["ES2020"],
-
-    // ── Type definitions ─────────────────────────────────────────────────
-    // Tells TypeScript to include Node.js type definitions (@types/node).
-    // Without this, TypeScript doesn't know about fs, path, process, etc.
     "types": ["node"],
 
-    // ── Strict type checking ─────────────────────────────────────────────
-    // Enables all strict type checking options at once. This is the single
-    // most important setting — it catches a whole family of bugs at compile
-    // time rather than at runtime. Always keep this true.
+    // ── Strictness ─────────────────────────────────────────────────────
     "strict": true,
-
-    // Ensures that if a function has multiple return paths, all of them
-    // return a value. Catches bugs where you forget to return in a branch.
     "noImplicitReturns": true,
-
-    // Prevents accidental fallthrough in switch statements — if a case
-    // doesn't have a break or return, the compiler will warn you.
     "noFallthroughCasesInSwitch": true,
-
-    // Makes array and object index access safer by including undefined
-    // in the returned type. e.g. arr[0] is T | undefined, not just T.
-    // This catches a common source of runtime errors.
+    // arr[i] returns T | undefined instead of T — forces explicit handling.
     "noUncheckedIndexedAccess": true,
-
-    // Catches import casing bugs between Windows and macOS.
-    // e.g. import './Core/types' vs import './core/types' — Windows is
-    // case-insensitive so both work there, but macOS will fail at runtime.
+    // Catches casing bugs that work on Windows but break on macOS/Linux.
     "forceConsistentCasingInFileNames": true,
 
-    // ── Module resolution ────────────────────────────────────────────────
-    // Allows importing JSON files directly with full type safety.
-    // We use this to import config.json in scan.ts.
+    // ── Module interop ─────────────────────────────────────────────────
     "resolveJsonModule": true,
-
-    // Makes default imports from CommonJS modules work cleanly.
-    // Without this, importing 'fs' or 'path' requires awkward workarounds.
     "esModuleInterop": true,
 
-    // ── Output ───────────────────────────────────────────────────────────
-    // Where to put compiled .js files if you run tsc directly.
-    // We use tsx to run TypeScript directly, so this folder stays empty
-    // during normal development. Useful if you ever need to pre-compile
-    // for deployment.
+    // ── Output ─────────────────────────────────────────────────────────
+    // tsx runs TypeScript directly, so dist/ stays empty in normal dev.
+    // Only populated if you actually run `tsc` for a deployable build.
     "outDir": "./dist",
 
-    // ── Performance ──────────────────────────────────────────────────────
-    // Skips type checking of .d.ts files in node_modules.
-    // This significantly speeds up compilation and avoids errors from
-    // third-party type definitions that don't perfectly match our setup.
     "skipLibCheck": true
   },
 
-  // Compile both source and test files. `tsc --noEmit` (`npm run typecheck`)
-  // and the editor's language server both use this list.
   "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"],
-
-  // Never compile these — node_modules would be enormous, dist is output not source
   "exclude": ["node_modules", "dist"]
 }

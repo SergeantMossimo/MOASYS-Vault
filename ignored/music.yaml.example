@@ -1,38 +1,48 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# MOASYS-Vault — Music ignore list (EXAMPLE / REFERENCE FILE)
+# MOASYS-Vault — Music ignore list (EXAMPLE)
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# Copy this file to `ignored/music.yaml` (drop the `.example` suffix) and
-# uncomment / edit entries below as needed. The real `music.yaml` is
-# gitignored so personal library decisions don't leak into the repo.
+# A "do not warn me about this" list for your music library. Anything you put
+# here gets silently dropped from output/music/warnings.json on every run.
 #
-# Each entry is a path prefix. Any music-pass warning whose `path` field
-# starts with one of these (followed by `/` or end-of-string,
-# case-insensitive, separator-normalized) gets silently dropped from
-# `output/music/warnings.json` (and counted in the run summary).
+# How to use this file:
+#   1. Copy this file to `ignored/music.yaml` (drop the `.example` suffix).
+#      The real `music.yaml` is gitignored so your personal decisions don't
+#      end up in version control.
+#   2. Add path prefixes below — one per line.
+#   3. Re-run `npm run music`. Matching warnings disappear from the output.
 #
-# Get paths from `output/music/warnings.json`. Most music warnings use the
-# `<Artist>/<Album>` path shape.
+# How matching works: each entry is a path PREFIX. A warning whose `path`
+# starts with one of these (slash- or end-of-string-bounded) is silenced.
+# Matching is case-insensitive and forward-slash-normalized, so it works on
+# Windows and macOS/Linux libraries alike.
+#
+# Get the paths to add from output/music/warnings.json. Most music warnings
+# use the `<Artist>/<Album>` path shape.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Silence a whole artist ──────────────────────────────────────────────────
-# Useful when an artist's whole catalog has a known issue you've decided
-# to keep (e.g. a folder/tag mismatch you can't fix because the tag is set
-# by the original publisher).
+
+# Silence a whole artist
+# (Useful when an artist's catalog has a known issue you've decided to keep —
+# e.g. a folder/tag mismatch you can't fix because the tag was set by the
+# original publisher.)
 # - Some Artist
 # - Various Artists
 
-# ── Silence one album ───────────────────────────────────────────────────────
-# Drops every warning under this album folder (compilation_detected,
-# folder_tag_mismatch, missing_tags, track_number_mismatch, etc.).
+
+# Silence one album
+# (Drops every warning under this album folder — compilation_detected,
+# folder_tag_mismatch, missing_tags, track_number_mismatch, etc.)
 # - Pink Floyd/The Wall
 # - 2Pac/All Eyez on Me
 
-# ── Silence a single track ──────────────────────────────────────────────────
-# Pin-point: just one file path.
+
+# Silence one track
+# (Pin-point: just one file.)
 # - Pink Floyd/The Wall/01 - In the Flesh.flac
 
-# ── Silence by category ─────────────────────────────────────────────────────
-# Drop ALL warnings under a category folder.
+
+# Silence a whole category folder
+# (Drops EVERY warning under this folder.)
 # - Other Music
 # - Other Soundtracks

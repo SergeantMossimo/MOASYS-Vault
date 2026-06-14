@@ -1,13 +1,13 @@
 # Scans & Validation — Runbook
 
-MOASYS-Vault has two independent passes you can run against your library. The first builds the catalog (with quality data + every hygiene warning); the second is an optional online cross-check against TheMovieDB.
+MOASYS-Vault has two passes you can run against your library:
 
-| Pass         | Command                   | Speed                                       | What it does                                                                                       |
-| ------------ | ------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| **Scan**     | `npm run <type>`          | Slow first time, instant cached             | Probe (ffprobe + ID3) + folder walk in one pass. Catalog, quality, naming/structure, tag warnings. |
-| **Validate** | `npm run validate:<type>` | ~10 min for movies first time, cached after | Cross-checks the catalog against TMDB. Catches title/year/episode mismatches.                      |
+| Pass         | Command                   | What it does                                                                                          |
+| ------------ | ------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Scan**     | `npm run <type>`          | Walks your folders and inspects every file. Produces your catalog plus a list of hygiene issues.      |
+| **Validate** | `npm run validate:<type>` | Cross-checks your catalog against TheMovieDB to catch title typos, wrong years, and missing episodes. |
 
-The **scan** pass is what `<type>` and `scan:all` run.
+The **scan** pass runs for every media type. The **validate** pass is **movies and shows only** — it needs TMDB, and TMDB doesn't cover music or audiobooks. Validate is also fully optional; you don't need it for the scanner to work.
 
 ---
 
@@ -19,28 +19,31 @@ The **scan** pass is what `<type>` and `scan:all` run.
 # 1. Install dependencies
 npm install
 
-# 2. Point the scanner at your library (edit root_path per media type)
+# 2. Point the scanner at your library
 # Open config.json and set root_path for each media type you have
 
-# 3. First scan — slow first time (ffprobe walks every primary file)
+# 3. First scan — this is the slow one (every file gets inspected to build a cache)
 npm run scan:all
 
-# 4. Review warnings, fix what you want to fix in your library, re-scan
+# 3.1 (Optional) Validate movies/shows against TMDB — needs a TMDB API key
+npm run validate:movies
+npm run validate:shows
+
+# 4. Review the warnings, fix what you want to fix in your library, re-scan
 npm run scan:all
 ```
 
-The probe cache (gitignored, `cache/<type>-probe.json`) makes re-runs near-instant. Only new / modified / removed files trigger a fresh ffprobe call.
+Re-runs are near-instant because the file inspection cache (`cache/<type>-probe.json`) skips anything that hasn't changed.
 
 ### Adding new media
 
 ```bash
 # 1. Add the new files/folders to your library
 
-# 2. Re-scan the affected type (existing files served from cache; only the new
-#    ones get probed)
+# 2. Re-scan the affected type (existing files served from cache; only the new ones get inspected)
 npm run movies        # or shows, music, audiobooks
 
-# 3. (Optional) Validate the new entries against TMDB
+# 3. (Optional) Re-validate movies/shows against TMDB
 npm run validate:movies
 ```
 
@@ -48,54 +51,43 @@ npm run validate:movies
 
 You changed something in your library — what do you need to re-run?
 
-| You changed...                                   | Re-run                                                                                                                 |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| Renamed/moved folders or files                   | `npm run <type>` — scan                                                                                                |
-| Updated ID3 tags in music                        | `npm run music`                                                                                                        |
-| Replaced a media file (different format/bitrate) | `npm run <type>` — probe cache invalidates by mtime/size                                                               |
-| Fixed a movie/show title or year                 | `npm run <type>` then `npm run validate:<type>`                                                                        |
-| Added new content                                | `npm run <type>` — probe handles only the new files                                                                    |
-| Nothing changed but want fresh data              | Scan is always fresh. Probe + validate use caches keyed by file mtime/size and search query — both are safe to re-run. |
+| You changed...                                   | Re-run                                                               |
+| ------------------------------------------------ | -------------------------------------------------------------------- |
+| Renamed/moved folders or files                   | `npm run <type>` — scan                                              |
+| Updated embedded music tags                      | `npm run music`                                                      |
+| Replaced a media file (different format/bitrate) | `npm run <type>` — the cache invalidates on modification time + size |
+| Fixed a movie/show title or year                 | `npm run <type>` then `npm run validate:<type>`                      |
+| Added new content                                | `npm run <type>` — only the new files get inspected                  |
 
 ---
 
 ## Scan pass — `npm run <type>`
 
-One merged pipeline per type:
+The scan pass for one media type does three things in order:
 
-1. **Probe** — walks every primary file with `ffprobe` (bundled via `ffprobe-static`, no install needed). For music, also reads ID3 / Vorbis / MP4 tags via the `music-metadata` package. Cache-aware, so repeat runs only touch changed files.
-2. **Scan** — walks the configured `categories` (or `root_path` if `categories` is empty) and parses each file's name and folder structure. Looks up the probe data per file to derive each version's `quality` from dimensions.
-3. **Write** — three artifacts per type:
-   - `output/<type>/<type>.json` — the catalog (with `versions: [{category, quality}]`)
-   - `output/<type>/probe.json` — rich per-file probe data (codec, bitrate, sample rate, ID3 tags, etc.) for debugging or alternate website views
-   - `output/<type>/warnings.json` — every hygiene finding from both passes
-
-### Variants
-
-```bash
-npm run movies        # one type
-npm run shows
-npm run music
-npm run audiobooks
-npm run scan:all      # all four sequentially
-```
+1. **Inspect every file.** Walks every primary file and records video dimensions, audio codec/bitrate/sample rate, and (for music) the artist/album/track info embedded in the file. Results are cached, so subsequent runs skip unchanged files.
+2. **Walk the folder tree.** Goes through the configured `categories` (or `root_path` directly if no categories are set) and parses each file's name and folder structure. Combines the inspection data to derive each version's quality.
+3. **Write three files per type** under `output/<type>/`:
+   - `<type>.json` — your clean catalog
+   - `probe.json` — the rich per-file inspection data (codec, bitrate, sample rate, embedded tags, etc.)
+   - `warnings.json` — every hygiene issue from steps 1 and 2
 
 ### Speed
 
-First run on a fresh library is slow — ffprobe takes 100–300 ms per file:
+First run on a fresh library is the slow one — file inspection takes 100–300 ms per file:
 
-| Library        | First run  | Cached re-run |
-| -------------- | ---------- | ------------- |
-| 2,500 movies   | ~12–20 min | Seconds       |
-| 5,000 episodes | ~15–25 min | Seconds       |
-| 7,000 tracks   | ~10 min    | Seconds       |
-| 3,500 chapters | ~6 min     | Seconds       |
+| Library        | First run  |
+| -------------- | ---------- |
+| 2,500 movies   | ~12–20 min |
+| 5,000 episodes | ~15–25 min |
+| 7,000 tracks   | ~10 min    |
+| 3,500 chapters | ~6 min     |
 
-The cache lives in `cache/<type>-probe.json` (gitignored) and is keyed by `path|mtime|size`. Only changed/added files get re-probed.
+The cache lives at `cache/<type>-probe.json` (gitignored) and is keyed by `path | modification time | size`. Only changed or added files get re-inspected on subsequent runs.
 
 ### Quality buckets (movies and shows)
 
-For video media, you can configure pixel-range buckets in `rules/<type>.yaml`:
+If your library is organized by quality (folders like `UHD/`, `HD/`, `SD/`), you can tell the scanner what those names mean in terms of pixel dimensions:
 
 ```yaml
 quality_thresholds:
@@ -108,35 +100,41 @@ quality_thresholds:
     max_width: 1000
 ```
 
-Each bucket's `name` matches a quality keyword (`UHD`, `HD`, or `SD`) — the same vocabulary the scanner auto-detects from category names. Two things happen per probed file:
+Each bucket's `name` is one of the recognized quality keywords (`UHD`, `HD`, or `SD`) — the same words the scanner auto-detects from your category names. Two things happen for every video file:
 
-1. **Quality derivation** — the bucket whose dimension range contains the file's long edge (`max(width, height)`) becomes the version's `quality`. Independent of the file's category.
-2. **`warn_quality_mismatch`** — each category resolves to a quality via whole-word substring detection: `UHD/Other UHD` → UHD, `HD/Other HD` → HD, `SD/Other SD` → SD. Categories with no UHD/HD/SD substring (e.g. `Documentary`) resolve to `null` and are silently passed. When a file's category-resolved quality has a matching bucket and the file's actual long edge doesn't fit that bucket, it's flagged.
+1. **Quality derivation** — the bucket whose width range contains the file's long edge becomes the version's `quality`. This happens regardless of which folder the file is in.
+2. **`warn_quality_mismatch`** — every category resolves to a quality via whole-word matching of `UHD` / `HD` / `SD` in its name. So `UHD/` and `Other UHD/` both resolve to UHD, `HD/` resolves to HD, etc. Categories without any of those keywords (e.g. `Documentary/`) resolve to `null` and skip the check entirely. When a file's category-resolved quality has a matching bucket and the file's actual long edge doesn't fit, you get a warning.
 
-This means a 480p file in `Other HD/` IS flagged (Other HD → HD bucket), while a 480p file in `Documentary/` is not (no quality detected). See [docs/CONFIG.md](CONFIG.md#three-configuration-shapes) for the configuration matrix.
+So: a 480p file in `Other HD/` gets flagged (Other HD → HD bucket), but a 480p file in `Documentary/` doesn't (no quality detected — general tag).
 
-Forgiving by design: HandBrake-cropped 664×448 SD and 1920×800 HD still classify correctly. Ships empty by default so libraries without quality buckets stay quiet.
+These checks are forgiving by design — HandBrake-cropped 664×448 SD and 1920×800 HD both classify correctly. And `quality_thresholds` ships empty by default, so libraries that aren't organized by quality stay quiet.
 
-### Music quality summary
+See [Configuration](CONFIG.md#three-configuration-shapes) for the full configuration matrix.
 
-Each album in `probe.json` gets a derived `audio_quality_summary` array — strings like `"FLAC 16/44.1"`, `"MP3 ~288"`, `"AAC 256"`. VBR tolerance collapses same-codec same-target tracks into one entry. Albums with truly mixed quality (FLAC + MP3, or wide-spread bitrate) get a `warn_quality_inconsistent` warning.
+### Audio quality summary (music)
 
-### ID3 tags
+Each album in `output/music/probe.json` gets a derived `audio_quality_summary` field — short, human-readable strings like `"FLAC 16/44.1"`, `"MP3 ~288"`, or `"AAC 256"`. The summary collapses tracks that share a codec and roughly the same bitrate target into one entry, so a VBR-encoded album doesn't list ten different bitrates.
 
-Per-track `tags` field with title, artist, album_artist, album, year, track number, disc, genre. Four warnings driven from those:
+Albums where the tracks have truly mismatched quality (FLAC mixed with MP3, or a very wide bitrate spread) get a `warn_quality_inconsistent` warning so you know which albums to clean up.
 
-- `warn_compilation_detected` — multiple distinct AlbumArtists in one album folder
-- `warn_folder_tag_mismatch` — folder name disagrees with tag
-- `warn_missing_tags` — required fields blank
-- `warn_track_number_mismatch` — filename `01 -` doesn't match tag's track number
+### Embedded music tags
 
-#### `warn_compilation_detected` — known false-positive pattern
+Music files carry metadata embedded inside them — title, artist, album, year, track number, genre, and so on. The scanner reads these tags during the file inspection pass and stores them per track in `output/music/probe.json` under a `tags` field.
 
-Hip-hop and other collaboration-heavy albums often tag each track's `AlbumArtist` as `<Primary Artist> feat. <Different Guest>` — so every track has a _different_ AlbumArtist string, even though it's one artist's album with rotating guests (e.g. 2Pac's _All Eyez on Me_ has 10 distinct AlbumArtist values like "2Pac feat. Outlaw Immortalz", "2Pac feat. Danny Boy", etc.).
+Four warnings are driven from the tag data:
 
-This triggers `warn_compilation_detected` because the algorithm can't distinguish "10 different artists collaborating" from "one artist with 10 different guests." Both look like multi-artist albums from the tag data alone.
+- **`warn_compilation_detected`** — the album has multiple distinct AlbumArtist values, which usually means it belongs under `Various Artists/`
+- **`warn_folder_tag_mismatch`** — the folder name (artist or album) disagrees with what's embedded in the file
+- **`warn_missing_tags`** — required tag fields (title / album / artist) are blank
+- **`warn_track_number_mismatch`** — the track number in the filename (`01 - ...`) doesn't match the track number embedded in the file
 
-The right fix for these albums is **not** to move them under `Various Artists/`. Instead, fix the tags so every track has the primary artist as `AlbumArtist` (with the featured guest staying in the per-track `Artist` field). That makes the album consistent under one artist, which is what Plex's docs recommend for single-artist albums with guest features.
+#### A known false positive: hip-hop / collaboration-heavy albums
+
+Hip-hop and other collaboration-heavy albums often tag each track's `AlbumArtist` as `<Primary Artist> feat. <Different Guest>` — so every track has a _different_ AlbumArtist string, even though it's really one artist's album with rotating guests. (Example: 2Pac's _All Eyez on Me_ has 10 distinct AlbumArtist values like "2Pac feat. Outlaw Immortalz", "2Pac feat. Danny Boy", etc.)
+
+This trips `warn_compilation_detected` because the scanner can't tell "10 different artists collaborating" from "one artist with 10 different guests" — both look the same in the tag data.
+
+The right fix is **not** to move these albums under `Various Artists/`. Instead, fix the tags so every track lists the primary artist as `AlbumArtist`, with the featured guest staying in the per-track `Artist` field. That makes the album consistent under one artist — which is what Plex recommends for single-artist albums with guest features.
 
 If you find a stack of these in your warnings, that's the pattern.
 
@@ -144,57 +142,60 @@ If you find a stack of these in your warnings, that's the pattern.
 
 ## Validate pass — `npm run validate:<type>`
 
-Cross-checks the scan output against TheMovieDB. Movies and shows only.
+Cross-checks your scan output against TheMovieDB. **Movies and shows only** — TMDB doesn't cover music or audiobooks.
 
 Writes:
 
 - `output/<type>/validation.json` — per-record TMDB resolution (canonical title, year, TMDB ID, alternatives)
-- `output/<type>/validation-warnings.json` — confidence warnings + canonical-title suggestions
+- `output/<type>/validation-warnings.json` — confidence warnings and canonical-title rename suggestions
 
 ### Setup
 
-1. Get a free v3 API key from <https://www.themoviedb.org/settings/api>
+1. Get a free [TMDB API v3 key](https://developer.themoviedb.org/docs/getting-started)
 2. Copy `.secrets.json.example` to `.secrets.json`
 3. Paste your key into the `tmdb.api_key` field
 
-See [CONFIG.md → .secrets.json](CONFIG.md#secretsjson).
+See [Configuration](CONFIG.md#secretsjson) for details.
 
 ### What it catches
 
 **For movies:**
 
 - Title typos (`Justice League Unlimitied` → no match)
-- Year off by 1 (Casablanca 1942 vs TMDB's 1943 — premiere vs wide release)
+- Year off by one (Casablanca 1942 vs TMDB's 1943 — premiere vs wide release)
 - Title canonicalization opportunities (your `Alice In Wonderland` → TMDB's `Alice in Wonderland`)
-- Obscure films that aren't in TMDB
+- Obscure films that aren't in TMDB at all
 
-**For shows (in addition to all of the above):**
+**For shows (everything above plus):**
 
-- **Episode count gaps** — your gap detection only finds missing-in-the-middle. This catches "TMDB says season 5 has 23 episodes; you have 22." That single missing episode flagged.
+- **Missing episode counts** — your local gap detection only catches missing-in-the-middle episodes. TMDB validation catches "TMDB says season 5 has 23 episodes; you have 22." That trailing missing episode finally gets flagged.
 
-### Matching strategy
+### How matching works
 
-The matching is **strict** — only filename-illegal characters (`<>:"|?*\/`) are stripped before comparison. Diacritics are NOT stripped: your `Amelie` ≠ TMDB's `Amélie` because `é` is legal in filenames, and we surface that as `no_match` so you can decide whether to add the accent.
+Matching is **strict** — only characters that are illegal in filenames (`<>:"|?*\/`) are stripped before comparison. Diacritics are NOT stripped: your `Amelie` won't match TMDB's `Amélie` because `é` is legal in filenames. The scanner surfaces these as `no_match` so you can decide whether to add the accent.
 
 When a match is found:
 
-- `tmdb_title_filename_safe` is included in the output — a copy-pasteable rename target
+- A `tmdb_title_filename_safe` field is included in the output — a copy-pasteable rename target
 - If your folder differs from that target, `warn_tmdb_title_canonical` fires
 
-Confidence is scored from title match (exact/prefix/substring) + year match (exact/off-by-1/off-by-2/wider). Thresholds:
+Confidence is scored from title-match strength (exact / prefix / substring) plus year-match closeness (exact / off-by-1 / off-by-2 / wider). Thresholds:
 
 - **high** (≥ 150) — title exact + year exact
-- **medium** (≥ 110) — usually title exact + year off by 1, or prefix + year exact
+- **medium** (≥ 110) — usually title exact + year off by one, or prefix + year exact
 - **low** (≥ 60) — partial title match + close year
 - **none** (< 60) — no plausible candidate; warning fires
 
 ### Caching
 
-- `cache/tmdb-search.json` — search-query → resolved-match lookup
-- `cache/tmdb-movies.json` / `cache/tmdb-shows.json` — full entity records by TMDB ID
+Three caches keep TMDB calls minimal:
 
-All gitignored. Re-runs are near-instant. Total first-run cost for the example library: ~10 min movies, ~3 min shows.
+- `cache/tmdb-search.json` — search-query to resolved-match lookup
+- `cache/tmdb-movies.json` — full movie records by TMDB ID
+- `cache/tmdb-shows.json` — full show records by TMDB ID
+
+All gitignored. Re-runs are near-instant. Total first-run cost for the example library: ~10 min for movies, ~3 min for shows.
 
 ### Rate limiting
 
-Hardcoded throttle: 4 requests/sec (TMDB allows 40 req/10 sec). Well under the limit, no need to tune. 429 responses honor `Retry-After`.
+The scanner throttles to 4 requests per second (TMDB allows 40 per 10 seconds). Well under the limit, so no tuning needed. If TMDB ever returns a 429, the throttle honors the `Retry-After` header automatically.

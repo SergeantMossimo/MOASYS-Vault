@@ -1,59 +1,30 @@
 {
-  // Stops ESLint from looking for config files in parent directories.
-  // Without this, ESLint might pick up a config from a parent folder
-  // on your machine and apply unexpected rules.
+  // MOASYS-Vault ESLint config.
+  // TypeScript-aware linting. The custom rules below are the project-specific
+  // decisions; everything else follows the recommended presets.
+
   "root": true,
-
-  // ── Parser ───────────────────────────────────────────────────────────
-  // Tells ESLint to use the TypeScript parser instead of the default
-  // JavaScript one. Required for TypeScript-specific rules to work.
   "parser": "@typescript-eslint/parser",
-
   "parserOptions": {
-    // Points the parser at your tsconfig so it can use type information
-    // for rules that require it (e.g. detecting unsafe assignments).
     "project": "./tsconfig.json"
   },
-
-  // ── Plugins ──────────────────────────────────────────────────────────
-  // Loads the TypeScript ESLint plugin which provides all the
-  // @typescript-eslint/* rules used below.
   "plugins": ["@typescript-eslint"],
-
-  // ── Base rule sets ───────────────────────────────────────────────────
-  // Extends two pre-built configs in order:
-  //   1. eslint:recommended  — core ESLint rules for common JS mistakes
-  //   2. plugin:@typescript-eslint/recommended — TypeScript-specific rules
-  // Rules from later configs override earlier ones if they conflict.
   "extends": [
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended"
   ],
-
-  // ── Custom rules ─────────────────────────────────────────────────────
-  // Overrides or additions on top of the extended configs above.
-  // Values: "error" = fail the lint check, "warn" = show warning, "off" = disabled
   "rules": {
-    // Disallow the `any` type entirely. Using `any` defeats the purpose
-    // of TypeScript — if you genuinely need an escape hatch, use `unknown`
-    // and narrow the type with a type guard instead.
+    // No `any` — use `unknown` + a type guard if you genuinely need an escape hatch.
     "@typescript-eslint/no-explicit-any": "error",
 
-    // Warn on variables that are declared but never used.
-    // Both ignorePatterns let you prefix names with _ to signal "intentionally
-    // unused" — useful for destructured throwaway values (_unused, ...rest)
-    // and unused function parameters (_event).
+    // Unused vars/args are errors. Prefix with `_` to mark intentionally unused.
     "@typescript-eslint/no-unused-vars": [
       "error",
       { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }
     ],
 
-    // Allow console.log — this is a CLI tool, console output is intentional.
-    // In a web app you'd typically set this to "warn" or "error".
+    // CLI tool — console output is intentional.
     "no-console": "off"
   },
-
-  // ── Ignored paths ────────────────────────────────────────────────────
-  // ESLint won't lint files in these directories.
   "ignorePatterns": ["dist/", "node_modules/"]
 }

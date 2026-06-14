@@ -1,45 +1,52 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # MOASYS-Vault — Movies rules (defaults)
 # ─────────────────────────────────────────────────────────────────────────────
+# Edit a value to change the project-wide default. Comment a line out to fall
+# back to the code default. Library-specific overrides (your own categories,
+# custom quality thresholds, etc.) belong in `rules/movies.local.yaml`, which
+# is gitignored.
 #
-# This file is a snapshot of the code-shipped defaults — every option visible
-# and active. Edit a value to change the project-wide default. Comment a line
-# out to fall back to whatever the current code default is (useful when you
-# want to "ignore" a particular setting and let the code decide).
-#
-# Personal, library-specific overrides (extra categories, custom quality
-# thresholds, etc.) belong in `rules/movies.local.yaml` — that file is
-# gitignored so it never gets committed.
-#
-# Loader behavior:  code defaults  →  this file  →  movies.local.yaml  →  Zod
+# Full reference: docs/CONFIG.md
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Regex patterns ──────────────────────────────────────────────────────────
-# Patterns MUST use named capture groups. They can be plain strings (no flags)
-# or { pattern, flags } objects.
+# ── Folder + file name patterns ─────────────────────────────────────────────
+# Plex's movie naming convention. Patterns use named capture groups.
 patterns:
   folder: '^(?<title>.+)\s\((?<year>\d{4})\)$'                                     # The Crow (1994)
   file:   '^(?<title>.+)\s\((?<year>\d{4})\)(?:\s\{edition-(?<edition>[^}]*)\})?$' # The Crow (1994) {edition-Director's Cut}
 
-# ── Categories ──────────────────────────────────────────────────────────────
-# Subfolders under root_path to walk. Each category's `name` is both the
-# folder name on disk AND the label used in output JSON. Empty (the default)
-# means: walk root_path directly and label records as "default".
+# ── Subfolders under root_path to walk ──────────────────────────────────────
+# Empty (the default) = scan root_path directly and label everything as
+# "default". Configure for your library in movies.local.yaml.
 #
-# Quality auto-detection: names containing UHD / HD / SD (whole-word, case-
-# insensitive, UHD-first) auto-resolve to that quality keyword and participate
-# in warn_quality_mismatch + warn_multi_quality checks. Other names ("Other
-# UHD", "Other HD", "Other SD" all match). Names without those keywords
-# (e.g. "Documentary") are general tags — quality checks don't apply.
-# See docs/CONFIG.md "Three configuration shapes".
+# Common use cases:
+#
+#   # A. Organized by quality (UHD/HD/SD auto-detected):
+#   categories:
+#     - { name: UHD }
+#     - { name: HD }
+#     - { name: SD }
+#     - { name: Other UHD }
+#     - { name: Other HD }
+#
+#   # B. Organized by general tags (no quality concept):
+#   categories:
+#     - { name: Movies }
+#     - { name: Documentaries }
+#     - { name: Kids }
+#
+#   # C. Flat library (no subfolders):
+#   categories: []
+#
+# See docs/CONFIG.md "Three configuration shapes" for the full explanation.
 categories: []
 
 # ── File extensions ─────────────────────────────────────────────────────────
-# Primary = the formats you expect; anything else triggers warn_non_primary.
-# Video = every extension treated as a movie file; outside this list = "unexpected".
+# Primary = formats you prefer (others fire warn_non_primary).
 primary_extension:
   - .mp4
 
+# Video = every extension recognized as a movie file.
 video_extensions:
   - .mp4
   - .mkv
@@ -51,22 +58,7 @@ video_extensions:
   - .m2ts
   - .webm
 
-# ── Acceptable year range ───────────────────────────────────────────────────
-# Files with a year outside this range get warn_suspicious_year.
-# `max: current` resolves to the current calendar year at boot.
-year_range:
-  min: 1888
-  max: current
-
-# ── Cross-folder quality combinations ───────────────────────────────────────
-# Cases where the same movie intentionally lives in two quality folders
-# (e.g. UHD master + HD downscale). Set-based comparison.
-acceptable_quality_combos:
-  - [UHD, HD]
-
-# ── Sidecar files ───────────────────────────────────────────────────────────
-# Extensions silently allowed anywhere in the movie hierarchy. Anything else
-# (non-video, non-sidecar) triggers warn_unexpected_entries.
+# Sidecar = silently allowed alongside movies (poster art, subtitles, NFOs).
 sidecar_extensions:
   - .nfo
   - .jpg
@@ -81,17 +73,29 @@ sidecar_extensions:
   - .sub
   - .idx
 
-# ── Quality buckets (ffprobe pass) ──────────────────────────────────────────
-# Each bucket's `name` is a quality keyword (UHD / HD / SD) that categories
-# auto-resolve to via whole-word matching. A file in any category whose
-# auto-detected quality matches a bucket is checked: long edge must fall in
-# [min_width, max_width]. Either bound is optional. General-tag categories
-# (no UHD/HD/SD substring) resolve to null and are silently passed.
-# Empty default = silent. Configure for your library in movies.local.yaml.
+# ── Year range ──────────────────────────────────────────────────────────────
+# Files with a year outside this range get warn_suspicious_year.
+# `max: current` resolves to the current calendar year at boot.
+year_range:
+  min: 1888
+  max: current
+
+# ── Quality buckets ─────────────────────────────────────────────────────────
+# Only used when categories are organized by quality (shape A above).
+# Defines what UHD / HD / SD mean dimensionally. Empty default = no
+# dimension checks fire. Configure in movies.local.yaml.
 quality_thresholds: []
 
+# ── Acceptable cross-quality combos ─────────────────────────────────────────
+# Only used when categories are organized by quality (shape A above).
+# Lists quality sets a single movie may legitimately span without firing
+# warn_multi_quality. Default mirrors the common UHD master + HD downscale.
+acceptable_quality_combos:
+  - [UHD, HD]
+
 # ── Per-warning toggles ─────────────────────────────────────────────────────
-# All warnings ship enabled. Set any to `false` to silence it.
+# Set any to false to silence that warning everywhere. To silence on specific
+# paths only, use ignored/movies.yaml instead.
 checks:
   warn_non_primary: true          # File isn't the configured primary format
   warn_no_videos: true            # Movie folder has no video files
@@ -103,7 +107,7 @@ checks:
   warn_year_mismatch: true        # File year vs folder year
   warn_duplicate_edition: true    # Two files in same folder claim same edition
   warn_multi_quality: true        # Movie in multiple quality folders (unless in acceptable_quality_combos)
-  warn_quality_mismatch: true     # ffprobe dimensions don't fit quality_thresholds bucket
+  warn_quality_mismatch: true     # File dimensions don't fit its category's quality bucket
   warn_loose_files: true          # Video files at unexpected nesting
   warn_extra_subfolders: true     # Unexpected subfolders inside a movie folder
   warn_unexpected_entries: true   # Non-video, non-sidecar files
