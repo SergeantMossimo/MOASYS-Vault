@@ -260,13 +260,16 @@ export class WarningCollector {
 
   constructor(private ignoredPaths: string[] = []) {}
 
-  /** Add a warning. path and issue are required; extension is optional. */
+  /** Add a warning. path and issue are required; extension is optional.
+   *  Backslashes in `path` are normalized to forward slashes so warnings.json
+   *  is consistent across Windows and macOS/Linux scans. */
   add(path: string, issue: string, extension?: string): void {
-    if (isPathIgnored(path, this.ignoredPaths)) {
+    const normalizedPath = path.replace(/\\/g, '/')
+    if (isPathIgnored(normalizedPath, this.ignoredPaths)) {
       this.silenced++
       return
     }
-    const entry: Warning = { path, issue }
+    const entry: Warning = { path: normalizedPath, issue }
     if (extension !== undefined) entry.extension = extension
     this.warnings.push(entry)
   }

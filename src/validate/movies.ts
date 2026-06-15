@@ -207,14 +207,20 @@ export async function validateMovies(
       }
     }
 
-    // Emit warnings according to confidence
+    // Emit warnings according to confidence. Path is prefixed with the
+    // movie's first category so flat-library and quality-organized users
+    // both get a clickable, copy-pasteable folder path. "default" is the
+    // sentinel for an empty `categories` config — skip the prefix there.
     const movieLabel = movie.edition
       ? `${movie.title} (${movie.year}) {edition-${movie.edition}}`
       : `${movie.title} (${movie.year})`
+    const firstCategory = movie.versions[0]?.category
+    const moviePath =
+      firstCategory && firstCategory !== 'default' ? `${firstCategory}/${movieLabel}` : movieLabel
 
     if (resolved.confidence === 'none' && rules.checks.warn_tmdb_no_match) {
       warnings.add(
-        movieLabel,
+        moviePath,
         `TMDB found no match for '${movie.title}' (${movie.year}). Possible typo in title or year, or this movie isn't in TMDB.`
       )
     } else if (resolved.confidence === 'low' && rules.checks.warn_tmdb_low_confidence) {
@@ -223,7 +229,7 @@ export async function validateMovies(
           ? ` Alternatives: ${entry.alternatives.map(a => `'${a.title}' (${a.year})`).join(', ')}.`
           : ''
       warnings.add(
-        movieLabel,
+        moviePath,
         `TMDB low-confidence match: best guess is '${entry.tmdb_title}' (${entry.tmdb_year}).${altText} Review and confirm.`
       )
     } else if (
@@ -232,7 +238,7 @@ export async function validateMovies(
       entry.tmdb_year !== movie.year
     ) {
       warnings.add(
-        movieLabel,
+        moviePath,
         `TMDB year mismatch: folder says ${movie.year} but TMDB says '${entry.tmdb_title}' was released in ${entry.tmdb_year}. Verify which is correct.`
       )
     }
@@ -245,7 +251,7 @@ export async function validateMovies(
       entry.tmdb_title_filename_safe !== movie.title
     ) {
       warnings.add(
-        movieLabel,
+        moviePath,
         `TMDB canonical title differs: folder is '${movie.title}', TMDB filename-safe form is '${entry.tmdb_title_filename_safe}'. Consider renaming the folder to match.`
       )
     }

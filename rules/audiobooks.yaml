@@ -48,12 +48,7 @@ audio_extensions:
 
 # Sidecar = silently allowed alongside chapters (cover art, cuesheets, PDFs).
 sidecar_extensions:
-  - .nfo
   - .jpg
-  - .jpeg
-  - .png
-  - .webp
-  - .cue
   - .pdf
 
 # ── Per-warning toggles ─────────────────────────────────────────────────────

@@ -66,18 +66,9 @@ ignored_season_names:
 
 # Sidecar = silently allowed alongside episodes (poster art, subtitles, NFOs).
 sidecar_extensions:
-  - .nfo
+#   - .nfo
   - .jpg
-  - .jpeg
-  - .png
-  - .webp
-  - .tbn
   - .srt
-  - .ass
-  - .ssa
-  - .vtt
-  - .sub
-  - .idx
 
 # ── Quality buckets ─────────────────────────────────────────────────────────
 # Only used when categories are organized by quality (shape A above).

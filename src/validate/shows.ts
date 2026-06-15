@@ -217,12 +217,18 @@ export async function validateShows(
       }
     }
 
-    // Warnings
+    // Warnings. Path is prefixed with the show's first category (taken from
+    // the first season's first version) so flat-library and quality-organized
+    // users both get a clickable, copy-pasteable folder path. "default" is
+    // the sentinel for an empty `categories` config — skip the prefix there.
     const label = `${show.title} (${show.year})`
+    const firstCategory = show.seasons[0]?.versions[0]?.category
+    const showPath =
+      firstCategory && firstCategory !== 'default' ? `${firstCategory}/${label}` : label
 
     if (resolved.confidence === 'none' && rules.checks.warn_tmdb_no_match) {
       warnings.add(
-        label,
+        showPath,
         `TMDB found no match for '${show.title}' (${show.year}). Possible typo or this show isn't in TMDB.`
       )
     } else if (resolved.confidence === 'low' && rules.checks.warn_tmdb_low_confidence) {
@@ -231,7 +237,7 @@ export async function validateShows(
           ? ` Alternatives: ${entry.alternatives.map(a => `'${a.title}' (${a.year})`).join(', ')}.`
           : ''
       warnings.add(
-        label,
+        showPath,
         `TMDB low-confidence match: best guess is '${entry.tmdb_title}' (${entry.tmdb_first_air_year}).${altText} Review and confirm.`
       )
     }
@@ -244,19 +250,25 @@ export async function validateShows(
       entry.tmdb_title_filename_safe !== show.title
     ) {
       warnings.add(
-        label,
+        showPath,
         `TMDB canonical title differs: folder is '${show.title}', TMDB filename-safe form is '${entry.tmdb_title_filename_safe}'. Consider renaming the folder to match.`
       )
     }
 
-    // Per-season episode count check (skip season 0 / "Specials" — see header)
+    // Per-season episode count check (skip season 0 / "Specials" — see header).
+    // Per-season warnings use that season's own first category, because a
+    // show can legitimately span categories per season (S1 in HD, S2 in UHD).
     if (rules.checks.warn_tmdb_episode_count && details !== undefined) {
-      for (const season of entry.seasons) {
+      for (let s = 0; s < entry.seasons.length; s++) {
+        const season = entry.seasons[s]!
         if (season.tmdb_episode_count === null) continue
         if (season.season === '0' || season.season.toLowerCase() === 'specials') continue
         if (season.missing !== null && season.missing > 0) {
+          const seasonCategory = show.seasons[s]?.versions[0]?.category
+          const seasonShowPath =
+            seasonCategory && seasonCategory !== 'default' ? `${seasonCategory}/${label}` : label
           warnings.add(
-            `${label} — Season ${season.season}`,
+            `${seasonShowPath} — Season ${season.season}`,
             `Season ${season.season} has ${season.local_episode_count} of ${season.tmdb_episode_count} episodes per TMDB (${season.missing} missing). Identify gaps via shows.json or the scan's potential-missing-episodes warning.`
           )
         }

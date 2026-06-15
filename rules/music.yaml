@@ -56,15 +56,7 @@ audio_extensions:
 
 # Sidecar = silently allowed alongside tracks (cover art, lyrics, cuesheets).
 sidecar_extensions:
-  - .nfo
   - .jpg
-  - .jpeg
-  - .png
-  - .webp
-  - .lrc
-  - .cue
-  - .m3u
-  - .m3u8
   - .pdf
 
 # ── Per-warning toggles ─────────────────────────────────────────────────────
