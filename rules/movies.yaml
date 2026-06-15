@@ -60,18 +60,8 @@ video_extensions:
 
 # Sidecar = silently allowed alongside movies (poster art, subtitles, NFOs).
 sidecar_extensions:
-  - .nfo
-  - .jpg
-  - .jpeg
-  - .png
-  - .webp
-  - .tbn
   - .srt
-  - .ass
-  - .ssa
-  - .vtt
-  - .sub
-  - .idx
+
 
 # ── Year range ──────────────────────────────────────────────────────────────
 # Files with a year outside this range get warn_suspicious_year.
