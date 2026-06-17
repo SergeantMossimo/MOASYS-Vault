@@ -246,6 +246,7 @@ export async function probeMovies(
       )
       if (bucket !== null && !fits) {
         warnings.add(
+          'warn_quality_mismatch',
           task.relativePath,
           `Quality mismatch — ${data.video.width}x${data.video.height} (long edge ${longEdge}px) ` +
             `doesn't fit bucket '${bucket.name}' (` +

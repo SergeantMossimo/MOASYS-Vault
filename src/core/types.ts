@@ -53,6 +53,7 @@ export interface AppConfig {
 
 /** A single warning entry written to warnings.json */
 export interface Warning {
+  type: string // Stable machine-readable identifier (e.g. 'warn_bad_folder_name')
   path: string
   issue: string
   extension?: string // Optional — only present for non-primary file warnings
@@ -109,11 +110,27 @@ export interface MovieOutput {
 // Show types
 // ─────────────────────────────────────────────
 
+/**
+ * One episode (or multi-episode file) parsed from disk. Carried through to
+ * `shows.json` so downstream consumers (and the TMDB-episode-name validation
+ * pass) can join on `(season, episode_start)`.
+ *
+ *   episode_start === episode_end → single-episode file
+ *   episode_start !== episode_end → multi-episode file (e.g. S01E01-E02)
+ *   title === null                 → filename omits " - Episode Title"
+ */
+export interface EpisodeOutput {
+  episode_start: number
+  episode_end: number
+  title: string | null
+}
+
 /** Internal record for a single season during scanning */
 export interface SeasonRecord {
   season_label: string // "1", "2", "Specials" etc.
   episode_count: number
   versions: Version[]
+  episodes: EpisodeOutput[]
 }
 
 /** Internal record for a single show during scanning */
@@ -128,6 +145,7 @@ export interface SeasonOutput {
   season: string // "1", "2", "Specials"
   episode_count: number
   versions: Version[]
+  episodes: EpisodeOutput[]
 }
 
 /** One entry in shows.json */
@@ -252,31 +270,40 @@ export interface MediaModule<TRecord, TOutput, TConfig extends BaseMediaConfig> 
  * Silenced warnings are still counted via `silencedCount()` so the runner
  * can surface "N silenced" in its summary.
  */
-import { isPathIgnored } from './ignored'
+import { IgnoredEntry, isWarningIgnored } from './ignored'
 
 export class WarningCollector {
   private warnings: Warning[] = []
   private silenced = 0
 
-  constructor(private ignoredPaths: string[] = []) {}
+  constructor(private ignored: IgnoredEntry[] = []) {}
 
-  /** Add a warning. path and issue are required; extension is optional.
-   *  Backslashes in `path` are normalized to forward slashes so warnings.json
-   *  is consistent across Windows and macOS/Linux scans. */
-  add(path: string, issue: string, extension?: string): void {
+  /** Add a warning. type, path, and issue are required; extension is optional.
+   *  - type:   stable machine-readable identifier (e.g. 'warn_bad_folder_name'),
+   *            used for grouping in warnings.json and for type-scoped silencing
+   *            in ignored/<type>.yaml.
+   *  - path:   library-relative location. Backslashes are normalized to forward
+   *            slashes so output is consistent across Windows and macOS/Linux.
+   *  - issue:  human-readable description.
+   *  - extension: optional file extension, only set for non-primary file warnings. */
+  add(type: string, path: string, issue: string, extension?: string): void {
     const normalizedPath = path.replace(/\\/g, '/')
-    if (isPathIgnored(normalizedPath, this.ignoredPaths)) {
+    if (isWarningIgnored(type, normalizedPath, this.ignored)) {
       this.silenced++
       return
     }
-    const entry: Warning = { path: normalizedPath, issue }
+    const entry: Warning = { type, path: normalizedPath, issue }
     if (extension !== undefined) entry.extension = extension
     this.warnings.push(entry)
   }
 
-  /** Return a copy of all collected warnings */
+  /** Return a copy of all collected warnings, sorted by (type, path) for
+   *  predictable grouping in warnings.json. */
   all(): Warning[] {
-    return [...this.warnings]
+    return [...this.warnings].sort((a, b) => {
+      if (a.type !== b.type) return a.type.localeCompare(b.type)
+      return a.path.localeCompare(b.path)
+    })
   }
 
   /** Return the total number of warnings collected (excludes silenced). */

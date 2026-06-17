@@ -4,7 +4,11 @@ import { validateShows } from '../../../src/validate/shows'
 import { defaultShowsRules, type ShowsRules } from '../../../src/core/rules/shows'
 import { JsonCache } from '../../../src/validate/cache'
 import { WarningCollector, type ShowOutput } from '../../../src/core/types'
-import type { TmdbShowDetails, TmdbShowSearchResult } from '../../../src/validate/types'
+import type {
+  TmdbShowDetails,
+  TmdbShowSearchResult,
+  TmdbSeasonDetails,
+} from '../../../src/validate/types'
 import { TmdbClient } from '../../../src/validate/tmdb'
 
 function memoryCache<T>(seed: Record<string, T> = {}): JsonCache<T> {
@@ -20,6 +24,8 @@ function show(title: string, year: number, seasons: ShowOutput['seasons'] = []):
 function mockClient(opts: {
   searchResults?: TmdbShowSearchResult[]
   details?: Record<number, TmdbShowDetails>
+  /** Keyed by `${showId}:${seasonNumber}` */
+  seasons?: Record<string, TmdbSeasonDetails>
   searchFails?: boolean
 }): TmdbClient {
   return {
@@ -30,6 +36,11 @@ function mockClient(opts: {
     getShow: vi.fn(async (id: number) => {
       const d = opts.details?.[id]
       if (!d) throw new Error('not found')
+      return d
+    }),
+    getShowSeason: vi.fn(async (showId: number, seasonNumber: number) => {
+      const d = opts.seasons?.[`${showId}:${seasonNumber}`]
+      if (!d) throw new Error('season not found')
       return d
     }),
     get totalRequests() {
@@ -76,6 +87,7 @@ describe('validateShows — confidence scoring', () => {
       client,
       memoryCache(),
       memoryCache(),
+      memoryCache(),
       warnings
     )
 
@@ -89,6 +101,7 @@ describe('validateShows — confidence scoring', () => {
       [show('Made Up Show', 2020)],
       defaultShowsRules,
       client,
+      memoryCache(),
       memoryCache(),
       memoryCache(),
       warnings
@@ -127,6 +140,7 @@ describe('validateShows — confidence scoring', () => {
       client,
       memoryCache(),
       memoryCache(),
+      memoryCache(),
       warnings
     )
     expect(result[0]?.confidence).toBe('medium')
@@ -162,6 +176,7 @@ describe('validateShows — confidence scoring', () => {
       client,
       memoryCache(),
       memoryCache(),
+      memoryCache(),
       warnings
     )
     expect(result[0]?.confidence).toBe('low')
@@ -174,6 +189,7 @@ describe('validateShows — confidence scoring', () => {
       [show('X', 2020)],
       defaultShowsRules,
       client,
+      memoryCache(),
       memoryCache(),
       memoryCache(),
       warnings
@@ -200,6 +216,7 @@ describe('validateShows — confidence scoring', () => {
       [show('Show', 2020)],
       defaultShowsRules,
       client,
+      memoryCache(),
       memoryCache(),
       memoryCache(),
       warnings
@@ -257,6 +274,7 @@ describe('validateShows — confidence scoring', () => {
       client,
       memoryCache(),
       detailsCache,
+      memoryCache(),
       warnings
     )
 
@@ -293,12 +311,13 @@ describe('validateShows — confidence scoring', () => {
     const result = await validateShows(
       [
         show('Show', 2020, [
-          { season: '1', episode_count: 10, versions: [] }, // missing 3
-          { season: '2', episode_count: 10, versions: [] }, // complete
+          { season: '1', episode_count: 10, versions: [], episodes: [] }, // missing 3
+          { season: '2', episode_count: 10, versions: [], episodes: [] }, // complete
         ]),
       ],
       defaultShowsRules,
       client,
+      memoryCache(),
       memoryCache(),
       memoryCache(),
       warnings
@@ -324,6 +343,7 @@ describe('validateShows — warnings', () => {
       [show('Missing', 2020)],
       defaultShowsRules,
       client,
+      memoryCache(),
       memoryCache(),
       memoryCache(),
       warnings
@@ -356,9 +376,10 @@ describe('validateShows — warnings', () => {
     })
 
     await validateShows(
-      [show('Show', 2020, [{ season: '1', episode_count: 10, versions: [] }])],
+      [show('Show', 2020, [{ season: '1', episode_count: 10, versions: [], episodes: [] }])],
       defaultShowsRules,
       client,
+      memoryCache(),
       memoryCache(),
       memoryCache(),
       warnings
@@ -392,9 +413,10 @@ describe('validateShows — warnings', () => {
     })
 
     await validateShows(
-      [show('Show', 2020, [{ season: 'Specials', episode_count: 4, versions: [] }])],
+      [show('Show', 2020, [{ season: 'Specials', episode_count: 4, versions: [], episodes: [] }])],
       defaultShowsRules,
       client,
+      memoryCache(),
       memoryCache(),
       memoryCache(),
       warnings
@@ -433,6 +455,7 @@ describe('validateShows — warnings', () => {
       [show('the crow', 1994)],
       defaultShowsRules,
       client,
+      memoryCache(),
       memoryCache(),
       memoryCache(),
       warnings
@@ -489,6 +512,7 @@ describe('validateShows — warnings', () => {
       client,
       memoryCache(),
       detailsCache,
+      memoryCache(),
       warnings
     )
 
@@ -514,8 +538,325 @@ describe('validateShows — warnings', () => {
       client,
       memoryCache(),
       memoryCache(),
+      memoryCache(),
       warnings
     )
     expect(warnings.all()).toEqual([])
+  })
+})
+
+describe('validateShows — TMDB episode-name validation', () => {
+  let warnings: WarningCollector
+
+  beforeEach(() => {
+    warnings = new WarningCollector()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  const baseDetails: TmdbShowDetails = {
+    id: 100,
+    name: 'Show',
+    original_name: 'Show',
+    first_air_date: '2020-01-01',
+    number_of_seasons: 1,
+    number_of_episodes: 3,
+    seasons: [{ season_number: 1, episode_count: 3, name: 'Season 1' }],
+  }
+
+  const baseSearch: TmdbShowSearchResult[] = [
+    {
+      id: 100,
+      name: 'Show',
+      original_name: 'Show',
+      first_air_date: '2020-01-01',
+      popularity: 100,
+    },
+  ]
+
+  it('fires per-episode mismatches with strict normalization', async () => {
+    const client = mockClient({
+      searchResults: baseSearch,
+      details: { 100: baseDetails },
+      seasons: {
+        '100:1': {
+          season_number: 1,
+          episodes: [
+            { episode_number: 1, name: 'Pilot' },
+            { episode_number: 2, name: 'The Second Episode' },
+          ],
+        },
+      },
+    })
+
+    await validateShows(
+      [
+        show('Show', 2020, [
+          {
+            season: '1',
+            episode_count: 2,
+            versions: [{ category: 'default', quality: null }],
+            episodes: [
+              { episode_start: 1, episode_end: 1, title: 'Pilot' },
+              { episode_start: 2, episode_end: 2, title: 'Wrong Title' },
+            ],
+          },
+        ]),
+      ],
+      defaultShowsRules,
+      client,
+      memoryCache(),
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    const epMismatches = warnings.all().filter(w => w.type === 'warn_tmdb_episode_name_mismatch')
+    expect(epMismatches).toHaveLength(1)
+    expect(epMismatches[0]?.path).toMatch(/S01E02/)
+    expect(epMismatches[0]?.issue).toContain("'Wrong Title'")
+    expect(epMismatches[0]?.issue).toContain("'The Second Episode'")
+  })
+
+  it('treats filename-illegal char differences as matching', async () => {
+    const client = mockClient({
+      searchResults: baseSearch,
+      details: { 100: baseDetails },
+      seasons: {
+        '100:1': {
+          season_number: 1,
+          episodes: [{ episode_number: 1, name: '3:10 to Yuma' }],
+        },
+      },
+    })
+
+    await validateShows(
+      [
+        show('Show', 2020, [
+          {
+            season: '1',
+            episode_count: 1,
+            versions: [{ category: 'default', quality: null }],
+            // filename can't contain `:`, so user has the colon stripped
+            episodes: [{ episode_start: 1, episode_end: 1, title: '310 to Yuma' }],
+          },
+        ]),
+      ],
+      defaultShowsRules,
+      client,
+      memoryCache(),
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    expect(warnings.all().filter(w => w.type === 'warn_tmdb_episode_name_mismatch')).toEqual([])
+  })
+
+  it('skips multi-episode files by default', async () => {
+    const client = mockClient({
+      searchResults: baseSearch,
+      details: { 100: baseDetails },
+      seasons: {
+        '100:1': {
+          season_number: 1,
+          episodes: [
+            { episode_number: 1, name: 'Broken Bow, Part I' },
+            { episode_number: 2, name: 'Broken Bow, Part II' },
+          ],
+        },
+      },
+    })
+
+    await validateShows(
+      [
+        show('Show', 2020, [
+          {
+            season: '1',
+            episode_count: 2,
+            versions: [{ category: 'default', quality: null }],
+            episodes: [
+              {
+                episode_start: 1,
+                episode_end: 2,
+                title: 'Broken Bow Part 1 And 2',
+              },
+            ],
+          },
+        ]),
+      ],
+      defaultShowsRules,
+      client,
+      memoryCache(),
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    expect(warnings.all().filter(w => w.type === 'warn_tmdb_episode_name_mismatch')).toEqual([])
+  })
+
+  it('checks multi-episode files when warn_tmdb_episode_name_multi_episode is true', async () => {
+    const client = mockClient({
+      searchResults: baseSearch,
+      details: { 100: baseDetails },
+      seasons: {
+        '100:1': {
+          season_number: 1,
+          episodes: [
+            { episode_number: 1, name: 'Broken Bow, Part I' },
+            { episode_number: 2, name: 'Broken Bow, Part II' },
+          ],
+        },
+      },
+    })
+
+    await validateShows(
+      [
+        show('Show', 2020, [
+          {
+            season: '1',
+            episode_count: 2,
+            versions: [{ category: 'default', quality: null }],
+            episodes: [
+              {
+                episode_start: 1,
+                episode_end: 2,
+                title: 'Some Combined Title',
+              },
+            ],
+          },
+        ]),
+      ],
+      {
+        ...defaultShowsRules,
+        checks: {
+          ...defaultShowsRules.checks,
+          warn_tmdb_episode_name_multi_episode: true,
+        },
+      },
+      client,
+      memoryCache(),
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    const epMismatches = warnings.all().filter(w => w.type === 'warn_tmdb_episode_name_mismatch')
+    expect(epMismatches).toHaveLength(1)
+    expect(epMismatches[0]?.path).toMatch(/S01E01-E02/)
+  })
+
+  it('skips episodes whose filename omits the title', async () => {
+    const client = mockClient({
+      searchResults: baseSearch,
+      details: { 100: baseDetails },
+      seasons: {
+        '100:1': {
+          season_number: 1,
+          episodes: [{ episode_number: 1, name: 'Pilot' }],
+        },
+      },
+    })
+
+    await validateShows(
+      [
+        show('Show', 2020, [
+          {
+            season: '1',
+            episode_count: 1,
+            versions: [{ category: 'default', quality: null }],
+            episodes: [{ episode_start: 1, episode_end: 1, title: null }],
+          },
+        ]),
+      ],
+      defaultShowsRules,
+      client,
+      memoryCache(),
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    expect(warnings.all().filter(w => w.type === 'warn_tmdb_episode_name_mismatch')).toEqual([])
+  })
+
+  it('does not call getShowSeason when the toggle is off', async () => {
+    const seasonsCall = vi.fn()
+    const client = {
+      searchShow: vi.fn(async () => baseSearch),
+      getShow: vi.fn(async () => baseDetails),
+      getShowSeason: seasonsCall,
+      get totalRequests() {
+        return 0
+      },
+    } as unknown as TmdbClient
+
+    await validateShows(
+      [
+        show('Show', 2020, [
+          {
+            season: '1',
+            episode_count: 1,
+            versions: [{ category: 'default', quality: null }],
+            episodes: [{ episode_start: 1, episode_end: 1, title: 'Pilot' }],
+          },
+        ]),
+      ],
+      {
+        ...defaultShowsRules,
+        checks: {
+          ...defaultShowsRules.checks,
+          warn_tmdb_episode_name_mismatch: false,
+        },
+      },
+      client,
+      memoryCache(),
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    expect(seasonsCall).not.toHaveBeenCalled()
+  })
+
+  it('reuses the seasons cache instead of hitting the client', async () => {
+    const seasonsCall = vi.fn()
+    const client = {
+      searchShow: vi.fn(async () => baseSearch),
+      getShow: vi.fn(async () => baseDetails),
+      getShowSeason: seasonsCall,
+      get totalRequests() {
+        return 0
+      },
+    } as unknown as TmdbClient
+
+    const seasonsCache = memoryCache<TmdbSeasonDetails>({
+      '100:1': {
+        season_number: 1,
+        episodes: [{ episode_number: 1, name: 'Pilot' }],
+      },
+    })
+
+    await validateShows(
+      [
+        show('Show', 2020, [
+          {
+            season: '1',
+            episode_count: 1,
+            versions: [{ category: 'default', quality: null }],
+            episodes: [{ episode_start: 1, episode_end: 1, title: 'Pilot' }],
+          },
+        ]),
+      ],
+      defaultShowsRules,
+      client,
+      memoryCache(),
+      memoryCache(),
+      seasonsCache,
+      warnings
+    )
+
+    expect(seasonsCall).not.toHaveBeenCalled()
+    expect(warnings.all().filter(w => w.type === 'warn_tmdb_episode_name_mismatch')).toEqual([])
   })
 })

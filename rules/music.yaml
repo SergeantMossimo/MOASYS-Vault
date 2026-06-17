@@ -59,6 +59,18 @@ sidecar_extensions:
   - .jpg
   - .pdf
 
+# ── Acceptable codec combos ─────────────────────────────────────────────────
+# Codec mixes that are intentional and should NOT fire warn_quality_inconsistent.
+# Quality sets — order doesn't matter. Codec names match the upper-case form
+# used in audio_quality_summary (FLAC, MP3, AAC, ALAC, OGG, WAV, etc.).
+#
+# Only applies to codec-mix cases. Bitrate-spread cases within a single codec
+# (e.g. MP3 192 + MP3 320) still fire the warning even when [MP3] is listed
+# here. For that, fix the encoding or silence via ignored/music.yaml.
+#
+# Empty default = every codec mix is flagged.
+acceptable_codec_combos: []
+
 # ── Per-warning toggles ─────────────────────────────────────────────────────
 # Set any to false to silence that warning everywhere. To silence on specific
 # paths only, use ignored/music.yaml instead.

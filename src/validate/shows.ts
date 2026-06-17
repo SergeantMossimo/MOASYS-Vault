@@ -12,7 +12,7 @@
  * map cleanly to anyone's local library (early extras, web shorts, etc).
  */
 
-import { ShowOutput, WarningCollector } from '../core/types'
+import { EpisodeOutput, ShowOutput, WarningCollector } from '../core/types'
 import { ShowsRules } from '../core/rules/shows'
 
 import { JsonCache, searchKey } from './cache'
@@ -23,6 +23,7 @@ import {
   ResolvedSearch,
   TmdbShowDetails,
   TmdbShowSearchResult,
+  TmdbSeasonDetails,
   SeasonValidation,
 } from './types'
 
@@ -134,12 +135,76 @@ function compareSeasons(
 // Validation entry point
 // ─────────────────────────────────────────────
 
+/**
+ * Compare local episode titles to TMDB's titles for the matched show.
+ *
+ * For each EpisodeOutput in the season:
+ *   - Skip if local title is null (handled separately by warn_missing_episode_title).
+ *   - Single-episode files: compare local vs TMDB[episode_start] with strict
+ *     filename-safe normalization.
+ *   - Multi-episode files (S01E01-E02): only checked when the
+ *     `warn_tmdb_episode_name_multi_episode` toggle is true; the local title
+ *     is accepted if it equals ANY of the constituent episodes' TMDB titles.
+ *
+ * Returns a list of mismatched episodes for the caller to emit warnings on.
+ */
+function findEpisodeTitleMismatches(
+  localEpisodes: EpisodeOutput[],
+  tmdbSeason: TmdbSeasonDetails,
+  checkMultiEpisode: boolean
+): Array<{ episode_start: number; episode_end: number; local: string; tmdb: string[] }> {
+  const tmdbByNumber = new Map<number, string>()
+  for (const ep of tmdbSeason.episodes) {
+    tmdbByNumber.set(ep.episode_number, ep.name)
+  }
+
+  const mismatches: Array<{
+    episode_start: number
+    episode_end: number
+    local: string
+    tmdb: string[]
+  }> = []
+
+  for (const ep of localEpisodes) {
+    if (ep.title === null) continue // no filename title to compare
+
+    const isMultiEpisode = ep.episode_start !== ep.episode_end
+    if (isMultiEpisode && !checkMultiEpisode) continue
+
+    const tmdbTitles: string[] = []
+    for (let n = ep.episode_start; n <= ep.episode_end; n++) {
+      const name = tmdbByNumber.get(n)
+      if (name !== undefined) tmdbTitles.push(name)
+    }
+    // No TMDB titles → can't compare. Probably out-of-range episode numbers
+    // (web extras, mislabelled files). Stay silent; warn_tmdb_episode_count
+    // already surfaces structural issues.
+    if (tmdbTitles.length === 0) continue
+
+    const localSafe = stripFilenameIllegalChars(ep.title).trim().toLowerCase()
+    const matches = tmdbTitles.some(
+      t => stripFilenameIllegalChars(t).trim().toLowerCase() === localSafe
+    )
+    if (!matches) {
+      mismatches.push({
+        episode_start: ep.episode_start,
+        episode_end: ep.episode_end,
+        local: ep.title,
+        tmdb: tmdbTitles,
+      })
+    }
+  }
+
+  return mismatches
+}
+
 export async function validateShows(
   shows: ShowOutput[],
   rules: ShowsRules,
   client: TmdbClient,
   searchCache: JsonCache<ResolvedSearch>,
   detailsCache: JsonCache<TmdbShowDetails>,
+  seasonsCache: JsonCache<TmdbSeasonDetails>,
   warnings: WarningCollector,
   onProgress?: (done: number, total: number, cached: number) => void
 ): Promise<ShowValidation[]> {
@@ -228,6 +293,7 @@ export async function validateShows(
 
     if (resolved.confidence === 'none' && rules.checks.warn_tmdb_no_match) {
       warnings.add(
+        'warn_tmdb_no_match',
         showPath,
         `TMDB found no match for '${show.title}' (${show.year}). Possible typo or this show isn't in TMDB.`
       )
@@ -237,6 +303,7 @@ export async function validateShows(
           ? ` Alternatives: ${entry.alternatives.map(a => `'${a.title}' (${a.year})`).join(', ')}.`
           : ''
       warnings.add(
+        'warn_tmdb_low_confidence',
         showPath,
         `TMDB low-confidence match: best guess is '${entry.tmdb_title}' (${entry.tmdb_first_air_year}).${altText} Review and confirm.`
       )
@@ -250,6 +317,7 @@ export async function validateShows(
       entry.tmdb_title_filename_safe !== show.title
     ) {
       warnings.add(
+        'warn_tmdb_title_canonical',
         showPath,
         `TMDB canonical title differs: folder is '${show.title}', TMDB filename-safe form is '${entry.tmdb_title_filename_safe}'. Consider renaming the folder to match.`
       )
@@ -268,8 +336,71 @@ export async function validateShows(
           const seasonShowPath =
             seasonCategory && seasonCategory !== 'default' ? `${seasonCategory}/${label}` : label
           warnings.add(
+            'warn_tmdb_episode_count',
             `${seasonShowPath} — Season ${season.season}`,
             `Season ${season.season} has ${season.local_episode_count} of ${season.tmdb_episode_count} episodes per TMDB (${season.missing} missing). Identify gaps via shows.json or the scan's potential-missing-episodes warning.`
+          )
+        }
+      }
+    }
+
+    // Per-episode title check. Only runs when we have a confident TMDB match
+    // (details fetched) and the toggle is on. One TMDB API call per season
+    // that has episodes to check — cached by (show_id, season_number).
+    if (
+      rules.checks.warn_tmdb_episode_name_mismatch &&
+      resolved.best_id !== null &&
+      details !== undefined
+    ) {
+      for (let s = 0; s < entry.seasons.length; s++) {
+        const season = entry.seasons[s]!
+        const localSeason = show.seasons[s]
+        if (!localSeason || localSeason.episodes.length === 0) continue
+
+        const seasonNumber = parseInt(season.season, 10)
+        if (isNaN(seasonNumber)) continue // named seasons like "Specials"
+
+        // Skip if TMDB doesn't claim a season at this number — keeps us from
+        // wasting a call on a numbering mismatch already reported elsewhere.
+        const tmdbHasSeason = details.seasons.some(s2 => s2.season_number === seasonNumber)
+        if (!tmdbHasSeason) continue
+
+        const seasonCacheKey = `${resolved.best_id}:${seasonNumber}`
+        let tmdbSeason = seasonsCache.get(seasonCacheKey)
+        if (!tmdbSeason) {
+          try {
+            tmdbSeason = await client.getShowSeason(resolved.best_id, seasonNumber)
+            seasonsCache.set(seasonCacheKey, tmdbSeason)
+          } catch (err) {
+            console.error(
+              `    [TMDB] Season details failed for show ${resolved.best_id} S${seasonNumber}: ${(err as Error).message}`
+            )
+            continue
+          }
+        }
+
+        const mismatches = findEpisodeTitleMismatches(
+          localSeason.episodes,
+          tmdbSeason,
+          rules.checks.warn_tmdb_episode_name_multi_episode
+        )
+        if (mismatches.length === 0) continue
+
+        const seasonCategory = localSeason.versions[0]?.category
+        const seasonShowPath =
+          seasonCategory && seasonCategory !== 'default' ? `${seasonCategory}/${label}` : label
+
+        for (const m of mismatches) {
+          const epLabel =
+            m.episode_start === m.episode_end
+              ? `S${String(seasonNumber).padStart(2, '0')}E${String(m.episode_start).padStart(2, '0')}`
+              : `S${String(seasonNumber).padStart(2, '0')}E${String(m.episode_start).padStart(2, '0')}-E${String(m.episode_end).padStart(2, '0')}`
+          const tmdbExpected =
+            m.tmdb.length === 1 ? `'${m.tmdb[0]}'` : m.tmdb.map(t => `'${t}'`).join(' / ')
+          warnings.add(
+            'warn_tmdb_episode_name_mismatch',
+            `${seasonShowPath} — ${epLabel}`,
+            `Episode title '${m.local}' differs from TMDB's ${tmdbExpected}. Verify which is correct.`
           )
         }
       }

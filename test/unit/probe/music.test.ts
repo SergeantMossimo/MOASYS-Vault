@@ -135,6 +135,96 @@ describe('probeMusic', () => {
     expect(warnings.all().some(w => w.issue.match(/inconsistent audio quality/i))).toBe(true)
   })
 
+  it('suppresses codec-mix warning when the combo is in acceptable_codec_combos', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          Artist: {
+            Album: {
+              '01 - One.flac': '',
+              '02 - Two.mp3': '',
+            },
+          },
+        },
+      },
+      probes: {
+        'Music/Artist/Album/01 - One.flac': fakeProbe({ audio: flacAudio() }),
+        'Music/Artist/Album/02 - Two.mp3': fakeProbe({ audio: mp3Audio() }),
+      },
+    })
+    const fullRules: MusicRules = {
+      ...rules,
+      primary_extension: ['.flac', '.mp3'],
+      acceptable_codec_combos: [['FLAC', 'MP3']],
+    }
+
+    await probeMusic({ root_path: root }, fullRules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/inconsistent audio quality/i))).toBe(false)
+  })
+
+  it('still fires for codec mixes NOT in acceptable_codec_combos', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          Artist: {
+            Album: {
+              '01 - One.flac': '',
+              '02 - Two.mp3': '',
+            },
+          },
+        },
+      },
+      probes: {
+        'Music/Artist/Album/01 - One.flac': fakeProbe({ audio: flacAudio() }),
+        'Music/Artist/Album/02 - Two.mp3': fakeProbe({ audio: mp3Audio() }),
+      },
+    })
+    const fullRules: MusicRules = {
+      ...rules,
+      primary_extension: ['.flac', '.mp3'],
+      // Whitelists a different combo, so [FLAC, MP3] still warns.
+      acceptable_codec_combos: [['FLAC', 'WAV']],
+    }
+
+    await probeMusic({ root_path: root }, fullRules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/inconsistent audio quality/i))).toBe(true)
+  })
+
+  it('does not silence bitrate-spread cases even when the codec is whitelisted alone', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          Artist: {
+            Album: {
+              '01 - One.mp3': '',
+              '02 - Two.mp3': '',
+            },
+          },
+        },
+      },
+      probes: {
+        // Same codec, very different bitrates → bitrate spread, single codec
+        'Music/Artist/Album/01 - One.mp3': fakeProbe({
+          audio: mp3Audio({ bitrate: 128_000 }),
+          bitrate: 128_000,
+        }),
+        'Music/Artist/Album/02 - Two.mp3': fakeProbe({
+          audio: mp3Audio({ bitrate: 320_000 }),
+          bitrate: 320_000,
+        }),
+      },
+    })
+    const fullRules: MusicRules = {
+      ...rules,
+      primary_extension: ['.mp3'],
+      // Single-codec entry — bitrate-spread cases must still fire.
+      acceptable_codec_combos: [['MP3']],
+    }
+
+    await probeMusic({ root_path: root }, fullRules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/inconsistent audio quality/i))).toBe(true)
+  })
+
   it('emits warn_compilation_detected when AlbumArtist values differ', async () => {
     const { rules, root, cache, warnings } = setup({
       spec: {

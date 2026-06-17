@@ -64,6 +64,22 @@ export interface TmdbShowDetails {
   genres?: Array<{ id: number; name: string }>
 }
 
+/** One episode summary inside a season details response. */
+export interface TmdbEpisodeSummary {
+  episode_number: number
+  name: string
+  air_date?: string
+}
+
+/** Full season record from `/tv/<id>/season/<n>`. */
+export interface TmdbSeasonDetails {
+  /** TMDB's own ID for this season (rarely needed). */
+  id?: number
+  season_number: number
+  name?: string
+  episodes: TmdbEpisodeSummary[]
+}
+
 // ─────────────────────────────────────────────
 // Cache shapes
 // ─────────────────────────────────────────────

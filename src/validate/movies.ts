@@ -220,6 +220,7 @@ export async function validateMovies(
 
     if (resolved.confidence === 'none' && rules.checks.warn_tmdb_no_match) {
       warnings.add(
+        'warn_tmdb_no_match',
         moviePath,
         `TMDB found no match for '${movie.title}' (${movie.year}). Possible typo in title or year, or this movie isn't in TMDB.`
       )
@@ -229,6 +230,7 @@ export async function validateMovies(
           ? ` Alternatives: ${entry.alternatives.map(a => `'${a.title}' (${a.year})`).join(', ')}.`
           : ''
       warnings.add(
+        'warn_tmdb_low_confidence',
         moviePath,
         `TMDB low-confidence match: best guess is '${entry.tmdb_title}' (${entry.tmdb_year}).${altText} Review and confirm.`
       )
@@ -238,6 +240,7 @@ export async function validateMovies(
       entry.tmdb_year !== movie.year
     ) {
       warnings.add(
+        'warn_tmdb_year_mismatch',
         moviePath,
         `TMDB year mismatch: folder says ${movie.year} but TMDB says '${entry.tmdb_title}' was released in ${entry.tmdb_year}. Verify which is correct.`
       )
@@ -251,6 +254,7 @@ export async function validateMovies(
       entry.tmdb_title_filename_safe !== movie.title
     ) {
       warnings.add(
+        'warn_tmdb_title_canonical',
         moviePath,
         `TMDB canonical title differs: folder is '${movie.title}', TMDB filename-safe form is '${entry.tmdb_title_filename_safe}'. Consider renaming the folder to match.`
       )

@@ -129,6 +129,31 @@ export const ShowsRulesSchema = z.object({
      * movies rule — surfaces case/accent/capitalization opportunities.
      */
     warn_tmdb_title_canonical: z.boolean(),
+    /**
+     * Files that match the Plex naming convention but omit the trailing
+     * episode title (e.g. `Show (2020) - S01E03.mp4`). Surfaced once per
+     * season as a summary so the warnings list isn't drowned in per-file
+     * noise. Default-on but easy to silence for libraries that don't care
+     * about titling.
+     */
+    warn_missing_episode_title: z.boolean(),
+    /**
+     * Per-episode title comparison against TMDB. Strict match — local title
+     * must equal TMDB's title for that episode after filename-safe
+     * normalization. Only fires for single-episode files when
+     * `warn_tmdb_episode_name_multi_episode` is false (the default); see
+     * that toggle for multi-episode (S01E01-E02) handling.
+     */
+    warn_tmdb_episode_name_mismatch: z.boolean(),
+    /**
+     * When true, the per-episode TMDB title check also fires for multi-
+     * episode files (e.g. `S01E01-E02 - Broken Bow Part 1 And 2`). The
+     * filename's title is considered a match if it equals ANY of the
+     * constituent episodes' TMDB titles (since the local title typically
+     * combines several). Default false because combined titles rarely
+     * match strictly and the resulting warnings are usually noise.
+     */
+    warn_tmdb_episode_name_multi_episode: z.boolean(),
   }),
 })
 
@@ -140,7 +165,7 @@ export const defaultShowsRules: ShowsRules = ShowsRulesSchema.parse({
     season_folder: { pattern: '^Season\\s(?<season>\\d{2})$', flags: 'i' },
     file: {
       pattern:
-        '^(?<title>.+)\\s\\((?<year>\\d{4})\\)\\s-\\sS(?<season>\\d{2})E(?<episode>\\d{2})(?:-E?(?<episode_end>\\d{2}))?(?:\\s-\\s.+)?$',
+        '^(?<title>.+)\\s\\((?<year>\\d{4})\\)\\s-\\sS(?<season>\\d{2})E(?<episode>\\d{2})(?:-E?(?<episode_end>\\d{2}))?(?:\\s-\\s(?<episode_title>.+))?$',
       flags: 'i',
     },
   },
@@ -185,5 +210,8 @@ export const defaultShowsRules: ShowsRules = ShowsRulesSchema.parse({
     warn_tmdb_low_confidence: true,
     warn_tmdb_episode_count: true,
     warn_tmdb_title_canonical: true,
+    warn_missing_episode_title: true,
+    warn_tmdb_episode_name_mismatch: true,
+    warn_tmdb_episode_name_multi_episode: false,
   },
 })

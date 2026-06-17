@@ -144,12 +144,16 @@ describe('writeWarningsOutput', () => {
   it('writes a warnings file with the expected shape', () => {
     const out = path.join(tmpDir, 'warnings.json')
     const warnings = new WarningCollector()
-    warnings.add('path/to/file', 'bad name')
+    warnings.add('warn_bad_file_name', 'path/to/file', 'bad name')
 
     writeWarningsOutput(out, warnings)
     const parsed = JSON.parse(fs.readFileSync(out, 'utf-8'))
     expect(parsed.count).toBe(1)
-    expect(parsed.files[0]).toEqual({ path: 'path/to/file', issue: 'bad name' })
+    expect(parsed.files[0]).toEqual({
+      type: 'warn_bad_file_name',
+      path: 'path/to/file',
+      issue: 'bad name',
+    })
     expect(parsed.generated).toMatch(/^\d{4}-\d{2}-\d{2}T/) // ISO 8601
   })
 
@@ -164,7 +168,7 @@ describe('writeWarningsOutput', () => {
   it('preserves the optional extension field on individual warnings', () => {
     const out = path.join(tmpDir, 'warnings.json')
     const warnings = new WarningCollector()
-    warnings.add('path/to/file.mkv', 'Non-MP4', '.mkv')
+    warnings.add('warn_non_primary', 'path/to/file.mkv', 'Non-MP4', '.mkv')
 
     writeWarningsOutput(out, warnings)
     const parsed = JSON.parse(fs.readFileSync(out, 'utf-8'))
@@ -174,8 +178,8 @@ describe('writeWarningsOutput', () => {
   it('logs the warning count', () => {
     const out = path.join(tmpDir, 'warnings.json')
     const warnings = new WarningCollector()
-    warnings.add('a', '1')
-    warnings.add('b', '2')
+    warnings.add('warn_a', 'a', '1')
+    warnings.add('warn_b', 'b', '2')
     writeWarningsOutput(out, warnings)
     expect(logSpy).toHaveBeenCalledWith(expect.stringMatching(/2 warnings/))
   })
@@ -189,63 +193,73 @@ describe('WarningCollector', () => {
     expect(wc.silencedCount()).toBe(0)
   })
 
-  it('adds a warning with path and issue', () => {
+  it('adds a warning with type, path, and issue', () => {
     const wc = new WarningCollector()
-    wc.add('x', 'y')
+    wc.add('warn_thing', 'x', 'y')
     expect(wc.count()).toBe(1)
-    expect(wc.all()).toEqual([{ path: 'x', issue: 'y' }])
+    expect(wc.all()).toEqual([{ type: 'warn_thing', path: 'x', issue: 'y' }])
   })
 
   it('attaches the optional extension field only when provided', () => {
     const wc = new WarningCollector()
-    wc.add('a.mkv', 'Non-MP4', '.mkv')
+    wc.add('warn_non_primary', 'a.mkv', 'Non-MP4', '.mkv')
     expect(wc.all()[0]?.extension).toBe('.mkv')
   })
 
   it('omits the extension field when not provided', () => {
     const wc = new WarningCollector()
-    wc.add('a', 'x')
+    wc.add('warn_thing', 'a', 'x')
     expect('extension' in (wc.all()[0] ?? {})).toBe(false)
   })
 
   it('returns a defensive copy from all()', () => {
     const wc = new WarningCollector()
-    wc.add('a', '1')
+    wc.add('warn_thing', 'a', '1')
     const list = wc.all()
-    list.push({ path: 'b', issue: '2' })
+    list.push({ type: 'warn_thing', path: 'b', issue: '2' })
     expect(wc.count()).toBe(1) // unaffected by mutation of the returned array
   })
 
-  it('preserves insertion order', () => {
+  it('sorts by (type, path) — replaces the previous insertion-order behaviour', () => {
     const wc = new WarningCollector()
-    wc.add('a', '1')
-    wc.add('b', '2')
-    wc.add('c', '3')
-    expect(wc.all().map(w => w.path)).toEqual(['a', 'b', 'c'])
+    wc.add('warn_b', 'z', '1')
+    wc.add('warn_a', 'y', '2')
+    wc.add('warn_a', 'x', '3')
+    expect(wc.all().map(w => `${w.type}/${w.path}`)).toEqual(['warn_a/x', 'warn_a/y', 'warn_b/z'])
   })
 
-  it('silences warnings whose path matches an ignored prefix', () => {
-    const wc = new WarningCollector(['HD/Show (2020)'])
-    wc.add('HD/Show (2020)', 'bad')
-    wc.add('HD/Show (2020)/Season 1/file.mp4', 'also bad')
-    wc.add('HD/Other Show (2020)', 'visible')
+  it('silences warnings whose path matches an ignored entry', () => {
+    const wc = new WarningCollector([{ path: 'HD/Show (2020)', types: null }])
+    wc.add('warn_thing', 'HD/Show (2020)', 'bad')
+    wc.add('warn_thing', 'HD/Show (2020)/Season 1/file.mp4', 'also bad')
+    wc.add('warn_thing', 'HD/Other Show (2020)', 'visible')
 
     expect(wc.count()).toBe(1)
     expect(wc.all().map(w => w.path)).toEqual(['HD/Other Show (2020)'])
     expect(wc.silencedCount()).toBe(2)
   })
 
-  it('does not silence when ignoredPaths is empty (default)', () => {
+  it('does not silence when the ignore list is empty (default)', () => {
     const wc = new WarningCollector()
-    wc.add('any/path', 'x')
+    wc.add('warn_thing', 'any/path', 'x')
     expect(wc.count()).toBe(1)
     expect(wc.silencedCount()).toBe(0)
   })
 
-  it('normalizes separators + case when matching ignored prefixes', () => {
-    const wc = new WarningCollector(['HD/Show (2020)'])
-    wc.add('hd\\show (2020)\\file.mp4', 'x')
+  it('normalizes separators + case when matching ignored entries', () => {
+    const wc = new WarningCollector([{ path: 'HD/Show (2020)', types: null }])
+    wc.add('warn_thing', 'hd\\show (2020)\\file.mp4', 'x')
     expect(wc.count()).toBe(0)
+    expect(wc.silencedCount()).toBe(1)
+  })
+
+  it('type-scoped ignored entry silences only the listed warning types on its path', () => {
+    const wc = new WarningCollector([{ path: 'HD/Show (2020)', types: ['warn_episode_gaps'] }])
+    wc.add('warn_episode_gaps', 'HD/Show (2020)/Season 1', 'gaps in S1')
+    wc.add('warn_bad_file_name', 'HD/Show (2020)/Season 1/x.mp4', 'visible')
+
+    expect(wc.count()).toBe(1)
+    expect(wc.all().map(w => w.type)).toEqual(['warn_bad_file_name'])
     expect(wc.silencedCount()).toBe(1)
   })
 })

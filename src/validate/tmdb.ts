@@ -23,6 +23,7 @@ import type {
   TmdbMovieDetails,
   TmdbShowSearchResult,
   TmdbShowDetails,
+  TmdbSeasonDetails,
 } from './types'
 
 const TMDB_BASE = 'https://api.themoviedb.org/3'
@@ -147,5 +148,13 @@ export class TmdbClient {
    */
   async getShow(id: number): Promise<TmdbShowDetails> {
     return this.request<TmdbShowDetails>(`/tv/${id}?language=en-US`)
+  }
+
+  /**
+   * Fetch a single season's details — per-episode titles + air dates.
+   * Caller is responsible for caching; this is one request per (show, season).
+   */
+  async getShowSeason(showId: number, seasonNumber: number): Promise<TmdbSeasonDetails> {
+    return this.request<TmdbSeasonDetails>(`/tv/${showId}/season/${seasonNumber}?language=en-US`)
   }
 }

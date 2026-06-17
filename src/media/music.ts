@@ -115,6 +115,7 @@ export function createMusicModule(
         )
         if (looseRoot.length > 0) {
           warnings.add(
+            'warn_loose_files',
             folderName,
             `${looseRoot.length} loose audio file(s) in media folder root — Plex expects an Artist/Album/tracks structure. ` +
               `Move tracks into Artist/Album/ subfolders. For multi-artist compilations, use 'Various Artists' as the artist folder.`
@@ -132,6 +133,7 @@ export function createMusicModule(
         if (unexpected.length > 0) {
           const names = unexpected.map(e => `'${e.name}'`).join(', ')
           warnings.add(
+            'warn_unexpected_entries',
             folderName,
             `Unexpected file(s) in media folder root: ${names}. Expected only Artist/ subfolders plus sidecars.`
           )
@@ -148,12 +150,20 @@ export function createMusicModule(
         // Artist folder validation — warnings only, do not skip the folder.
         // Plex would still index a weirdly-named folder; users want to know.
         if (rules.checks.warn_bad_artist_folder && !artistFolderRegex.test(artistEntry.name)) {
-          warnings.add(artistRel, `Artist folder name does not match patterns.artist_folder`)
+          warnings.add(
+            'warn_bad_artist_folder',
+            artistRel,
+            `Artist folder name does not match patterns.artist_folder`
+          )
         }
         if (rules.checks.warn_suspicious_folder_chars) {
           const issues = findSuspiciousPathChars(artistEntry.name)
           if (issues.length > 0) {
-            warnings.add(artistRel, `Suspicious characters in artist folder: ${issues.join(', ')}`)
+            warnings.add(
+              'warn_suspicious_folder_chars',
+              artistRel,
+              `Suspicious characters in artist folder: ${issues.join(', ')}`
+            )
           }
         }
 
@@ -161,7 +171,7 @@ export function createMusicModule(
         try {
           albumEntries = fs.readdirSync(artistPath, { withFileTypes: true })
         } catch {
-          warnings.add(artistRel, 'Permission denied reading artist folder')
+          warnings.add('permission_denied', artistRel, 'Permission denied reading artist folder')
           continue
         }
 
@@ -174,6 +184,7 @@ export function createMusicModule(
           )
           if (looseArtist.length > 0) {
             warnings.add(
+              'warn_loose_files',
               artistRel,
               `${looseArtist.length} loose audio file(s) in artist folder — Plex expects an Album subfolder around tracks. ` +
                 `Recommended fix: create an album subfolder and move tracks into it. ` +
@@ -196,6 +207,7 @@ export function createMusicModule(
           if (unexpected.length > 0) {
             const names = unexpected.map(e => `'${e.name}'`).join(', ')
             warnings.add(
+              'warn_unexpected_entries',
               artistRel,
               `Unexpected file(s) in artist folder: ${names}. Expected only Album/ subfolders plus sidecars (artist image, NFO, etc.).`
             )
@@ -211,12 +223,20 @@ export function createMusicModule(
 
           // Album folder validation — same approach as artist folder.
           if (rules.checks.warn_bad_album_folder && !albumFolderRegex.test(albumEntry.name)) {
-            warnings.add(albumRel, `Album folder name does not match patterns.album_folder`)
+            warnings.add(
+              'warn_bad_album_folder',
+              albumRel,
+              `Album folder name does not match patterns.album_folder`
+            )
           }
           if (rules.checks.warn_suspicious_folder_chars) {
             const issues = findSuspiciousPathChars(albumEntry.name)
             if (issues.length > 0) {
-              warnings.add(albumRel, `Suspicious characters in album folder: ${issues.join(', ')}`)
+              warnings.add(
+                'warn_suspicious_folder_chars',
+                albumRel,
+                `Suspicious characters in album folder: ${issues.join(', ')}`
+              )
             }
           }
 
@@ -224,7 +244,7 @@ export function createMusicModule(
           try {
             allFiles = fs.readdirSync(albumPath, { withFileTypes: true })
           } catch {
-            warnings.add(albumRel, 'Permission denied reading album folder')
+            warnings.add('permission_denied', albumRel, 'Permission denied reading album folder')
             continue
           }
 
@@ -236,6 +256,7 @@ export function createMusicModule(
             if (subfolders.length > 0) {
               const names = subfolders.map(s => `'${s.name}'`).join(', ')
               warnings.add(
+                'warn_extra_subfolders',
                 albumRel,
                 `Unexpected subfolder(s) in album folder: ${names}. ` +
                   `Plex uses a flat track layout — for multi-disc albums, use disc-prefixed track numbers ` +
@@ -256,6 +277,7 @@ export function createMusicModule(
             if (unexpected.length > 0) {
               const names = unexpected.map(e => `'${e.name}'`).join(', ')
               warnings.add(
+                'warn_unexpected_entries',
                 albumRel,
                 `Unexpected file(s) in album folder: ${names}. Expected only track files plus sidecars (cover art, NFO, lyrics).`
               )
@@ -269,7 +291,11 @@ export function createMusicModule(
 
           if (audioFiles.length === 0) {
             if (rules.checks.warn_no_audio) {
-              warnings.add(albumRel, 'No recognized audio files found in album folder')
+              warnings.add(
+                'warn_no_audio',
+                albumRel,
+                'No recognized audio files found in album folder'
+              )
             }
             continue
           }
@@ -278,6 +304,7 @@ export function createMusicModule(
             for (const f of nonPrimary) {
               const ext = path.extname(f.name).toLowerCase()
               warnings.add(
+                'warn_non_primary',
                 path.join(albumRel, f.name),
                 `${formatPrimaryExts(rules.primary_extension)} audio file — may need re-encoding`,
                 ext
@@ -305,6 +332,7 @@ export function createMusicModule(
             if (!parsed) {
               if (rules.checks.warn_bad_track_name) {
                 warnings.add(
+                  'warn_bad_track_name',
                   path.join(albumRel, f.name),
                   'Track file name does not match Plex naming convention — ' +
                     'expected: 01 - Track Name.ext or 101 - Track Name.ext (multi-disc)'
@@ -326,7 +354,11 @@ export function createMusicModule(
               if (gaps.length > 0) {
                 const gapStr = gaps.map(g => `Track ${String(g).padStart(2, '0')}`).join(', ')
                 const discStr = discTracks.size > 1 ? `Disc ${discNum}` : 'Album'
-                warnings.add(albumRel, `Potential missing tracks in ${discStr}: ${gapStr}`)
+                warnings.add(
+                  'warn_track_gaps',
+                  albumRel,
+                  `Potential missing tracks in ${discStr}: ${gapStr}`
+                )
               }
             }
           }
@@ -410,6 +442,7 @@ export function createMusicModule(
           if (cats.length <= 1) continue
           const ordered = categoryOrder.filter(c => cats.includes(c))
           warnings.add(
+            'warn_duplicate_album',
             path.join(artist.artist, album.album),
             `Duplicate album found in multiple categories: ${ordered.join(', ')}`
           )

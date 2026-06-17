@@ -68,6 +68,36 @@ function toRel(p: string): string {
   return p.split(path.sep).join('/')
 }
 
+/**
+ * Build a warning path for an album-level finding. Prepends the first
+ * category from `media_type` so users can locate the album in libraries
+ * organized by subfolder. The "default" sentinel (empty categories config)
+ * is skipped so flat libraries stay clean. WarningCollector normalizes the
+ * backslashes that path.join produces on Windows.
+ */
+function albumWarningPath(mediaType: string[], artist: string, album: string): string {
+  const category = mediaType[0]
+  return category && category !== 'default'
+    ? path.join(category, artist, album)
+    : path.join(artist, album)
+}
+
+/**
+ * Pull the codec name (e.g. "FLAC", "MP3", "AAC") out of an
+ * `audio_quality_summary` entry like "FLAC 16/44.1" or "MP3 ~288".
+ * Entries always start with the codec followed by a space, so the first
+ * whitespace-delimited token is the codec.
+ */
+function codecFromQualityEntry(entry: string): string {
+  const space = entry.indexOf(' ')
+  return space === -1 ? entry : entry.slice(0, space)
+}
+
+/** Return true if `codecs` matches one of the acceptable combos (set equality). */
+function isAcceptableCodecCombo(codecs: Set<string>, combos: readonly string[][]): boolean {
+  return combos.some(combo => combo.length === codecs.size && combo.every(c => codecs.has(c)))
+}
+
 // ─────────────────────────────────────────────
 // Walk
 // ─────────────────────────────────────────────
@@ -262,12 +292,24 @@ export async function probeMusic(
 
   // Quality inconsistency check — runs after aggregation since we need the
   // full per-album audio_quality_summary to know if there's a mismatch.
+  //
+  // Codec-mix cases that match `acceptable_codec_combos` are silently passed.
+  // Bitrate-spread cases within a single codec still fire — the whitelist
+  // only suppresses codec-mix noise (FLAC + MP3 etc.).
   if (rules.checks.warn_quality_inconsistent) {
     for (const artist of aggregated) {
       for (const album of artist.albums) {
         if (album.audio_quality_summary.length <= 1) continue
+
+        const codecs = new Set(album.audio_quality_summary.map(codecFromQualityEntry))
+        const isCodecMix = codecs.size > 1
+        if (isCodecMix && isAcceptableCodecCombo(codecs, rules.acceptable_codec_combos)) {
+          continue
+        }
+
         warnings.add(
-          path.join(artist.artist, album.album),
+          'warn_quality_inconsistent',
+          albumWarningPath(album.media_type, artist.artist, album.album),
           `Album has inconsistent audio quality across tracks: ${album.audio_quality_summary.join(', ')}. ` +
             `Usually means a mid-album re-encode or files added at different bitrates. ` +
             `Re-encode the outliers to match the album's primary quality.`
@@ -335,7 +377,7 @@ function analyzeTags(
 ): void {
   for (const artist of aggregated) {
     for (const album of artist.albums) {
-      const albumPath = path.join(artist.artist, album.album)
+      const albumPath = albumWarningPath(album.media_type, artist.artist, album.album)
 
       // Collect distinct album_artist values (fall back to artist when
       // album_artist is missing — many older rips only set artist).
@@ -386,6 +428,7 @@ function analyzeTags(
         const sample = [...albumArtistSet].slice(0, 5).join(', ')
         const more = albumArtistSet.size > 5 ? `, ... +${albumArtistSet.size - 5} more` : ''
         warnings.add(
+          'warn_compilation_detected',
           albumPath,
           `Album has tracks by ${albumArtistSet.size} distinct artists (per AlbumArtist tag: ${sample}${more}) ` +
             `but isn't in a 'Various Artists' folder. ` +
@@ -401,6 +444,7 @@ function analyzeTags(
         const tagValue = [...albumArtistSet][0]!
         if (!tagMatchesFolder(tagValue, artist.artist)) {
           warnings.add(
+            'warn_folder_tag_mismatch',
             albumPath,
             `Folder/tag mismatch: artist folder is '${artist.artist}' but AlbumArtist tag is '${tagValue}'. ` +
               `Recommended fix: rename folder to '${suggestedFolderName(tagValue)}' (or update the tag if the folder is correct). ` +
@@ -414,6 +458,7 @@ function analyzeTags(
         const tagValue = [...albumNameSet][0]!
         if (!tagMatchesFolder(tagValue, album.album)) {
           warnings.add(
+            'warn_folder_tag_mismatch',
             albumPath,
             `Folder/tag mismatch: album folder is '${album.album}' but Album tag is '${tagValue}'. ` +
               `Recommended fix: rename folder to '${suggestedFolderName(tagValue)}' or update the tag.`
@@ -429,6 +474,7 @@ function analyzeTags(
           .join(', ')
         const more = missingTagsTracks.length > 3 ? `, +${missingTagsTracks.length - 3} more` : ''
         warnings.add(
+          'warn_missing_tags',
           albumPath,
           `${missingTagsTracks.length} track(s) missing required tags (title, album, or artist/album_artist). ` +
             `Affected: ${sample}${more}. ` +
@@ -445,6 +491,7 @@ function analyzeTags(
         const more =
           trackNumberMismatches.length > 3 ? `; +${trackNumberMismatches.length - 3} more` : ''
         warnings.add(
+          'warn_track_number_mismatch',
           albumPath,
           `${trackNumberMismatches.length} track(s) with track-number mismatch between filename and tag. ` +
             `${sample}${more}. ` +

@@ -81,14 +81,18 @@ describe('writeWarnings', () => {
 
   it('writes a warnings JSON file with the expected shape', () => {
     const warnings = new WarningCollector()
-    warnings.add('file.mp4', 'something bad')
+    warnings.add('warn_thing', 'file.mp4', 'something bad')
 
     const out = path.join(tmpDir, 'warnings.json')
     writeWarnings(warnings, out)
 
     const parsed = JSON.parse(fs.readFileSync(out, 'utf-8'))
     expect(parsed.count).toBe(1)
-    expect(parsed.files[0]).toEqual({ path: 'file.mp4', issue: 'something bad' })
+    expect(parsed.files[0]).toEqual({
+      type: 'warn_thing',
+      path: 'file.mp4',
+      issue: 'something bad',
+    })
     expect(parsed.generated).toMatch(/^\d{4}-/) // ISO timestamp
   })
 
