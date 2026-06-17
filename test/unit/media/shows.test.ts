@@ -74,6 +74,10 @@ describe('shows module — happy paths', () => {
             season: '1',
             episode_count: 2,
             versions: [{ category: 'HD', quality: 'HD' }],
+            episodes: [
+              { episode_start: 1, episode_end: 1, title: 'Pilot' },
+              { episode_start: 2, episode_end: 2, title: 'Two' },
+            ],
           },
         ],
       },

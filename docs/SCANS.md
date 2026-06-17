@@ -169,6 +169,7 @@ See [Configuration](CONFIG.md#secretsjson) for details.
 **For shows (everything above plus):**
 
 - **Missing episode counts** — your local gap detection only catches missing-in-the-middle episodes. TMDB validation catches "TMDB says season 5 has 23 episodes; you have 22." That trailing missing episode finally gets flagged.
+- **Episode title mismatches** — each episode file's trailing `- Episode Title` is compared (strict, filename-safe) against TMDB's episode title for that S/E number. Multi-episode files (`S01E01-E02`) are skipped by default because their combined titles rarely match strictly; enable `warn_tmdb_episode_name_multi_episode` if you want them checked too. Costs one extra TMDB call per season — cached in `cache/tmdb-show-seasons.json`.
 
 ### How matching works
 
@@ -193,6 +194,7 @@ Three caches keep TMDB calls minimal:
 - `cache/tmdb-search.json` — search-query to resolved-match lookup
 - `cache/tmdb-movies.json` — full movie records by TMDB ID
 - `cache/tmdb-shows.json` — full show records by TMDB ID
+- `cache/tmdb-show-seasons.json` — per-season episode details (titles, air dates), only populated when `warn_tmdb_episode_name_mismatch` is enabled
 
 All gitignored. Re-runs are near-instant. Total first-run cost for the example library: ~10 min for movies, ~3 min for shows.
 

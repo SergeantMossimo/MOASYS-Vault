@@ -12,13 +12,23 @@
 #   2. Add path prefixes below — one per line.
 #   3. Re-run `npm run movies`. Matching warnings disappear from the output.
 #
-# How matching works: each entry is a path PREFIX. A warning whose `path`
-# starts with one of these (slash- or end-of-string-bounded) is silenced.
-# Matching is case-insensitive and forward-slash-normalized, so it works on
-# Windows and macOS/Linux libraries alike.
+# Two entry shapes — pick whichever fits each case:
+#
+#   # 1. Path-only (a bare string) — silences EVERY warning under this path.
+#   - UHD/Some Movie (2020)
+#
+#   # 2. Type-scoped (an object) — silences only the listed warning types
+#   #    under this path. Other warnings on the same path stay visible.
+#   - path: UHD/Some Movie (2020)
+#     types:
+#       - warn_tmdb_year_mismatch
+#
+# Matching is case-insensitive and forward-slash-normalized, so the same
+# file works on Windows (backslashes) and macOS/Linux (forward slashes).
 #
 # Get the paths to add from output/movies/warnings.json and
-# output/movies/validation-warnings.json.
+# output/movies/validation-warnings.json. Get the warning types from the
+# `type` field of each entry, or from rules/movies.yaml under `checks`.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -40,3 +50,11 @@
 # (Pin-point: just one file. Useful when a specific edition has a legitimate
 # warning you've decided to accept.)
 # - UHD/Blade Runner (1982)/Blade Runner (1982) {edition-Final Cut}.mp4
+
+
+# Silence one warning type for a specific path
+# (Most precise option. The example below silences ONLY the TMDB year-
+# mismatch warning — other warnings on the same path stay visible.)
+# - path: UHD/Casablanca (1942)
+#   types:
+#     - warn_tmdb_year_mismatch

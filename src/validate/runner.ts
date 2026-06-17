@@ -34,7 +34,13 @@ import { JsonCache } from './cache'
 import { TmdbClient } from './tmdb'
 import { validateMovies } from './movies'
 import { validateShows } from './shows'
-import { ResolvedSearch, TmdbMovieDetails, TmdbShowDetails, SEARCH_CACHE_VERSION } from './types'
+import {
+  ResolvedSearch,
+  TmdbMovieDetails,
+  TmdbShowDetails,
+  TmdbSeasonDetails,
+  SEARCH_CACHE_VERSION,
+} from './types'
 
 // ─────────────────────────────────────────────
 // Setup
@@ -158,8 +164,11 @@ async function runShows(client: TmdbClient): Promise<void> {
     SEARCH_CACHE_VERSION
   )
   const detailsCache = new JsonCache<TmdbShowDetails>(path.join(CACHE_DIR, 'tmdb-shows.json'))
+  const seasonsCache = new JsonCache<TmdbSeasonDetails>(
+    path.join(CACHE_DIR, 'tmdb-show-seasons.json')
+  )
   console.log(
-    `    [CACHE] ${searchCache.size()} search entries, ${detailsCache.size()} show-details entries`
+    `    [CACHE] ${searchCache.size()} search entries, ${detailsCache.size()} show-details entries, ${seasonsCache.size()} season-details entries`
   )
 
   const warnings = new WarningCollector(loadIgnoredPaths(SCRIPT_DIR, 'shows'))
@@ -170,6 +179,7 @@ async function runShows(client: TmdbClient): Promise<void> {
     client,
     searchCache,
     detailsCache,
+    seasonsCache,
     warnings,
     (done, total, cached) => {
       if (done === total || done % 10 === 0) {
@@ -185,6 +195,7 @@ async function runShows(client: TmdbClient): Promise<void> {
 
   searchCache.save()
   detailsCache.save()
+  seasonsCache.save()
 
   const silenced = warnings.silencedCount()
   const silencedSummary = silenced > 0 ? `, ${silenced} silenced via ignore list` : ''

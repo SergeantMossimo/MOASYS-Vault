@@ -13,13 +13,24 @@
 #   2. Add path prefixes below — one per line.
 #   3. Re-run `npm run audiobooks`. Matching warnings disappear from output.
 #
-# How matching works: each entry is a path PREFIX. A warning whose `path`
-# starts with one of these (slash- or end-of-string-bounded) is silenced.
-# Matching is case-insensitive and forward-slash-normalized, so it works on
-# Windows and macOS/Linux libraries alike.
+# Two entry shapes — pick whichever fits each case:
+#
+#   # 1. Path-only (a bare string) — silences EVERY warning under this path.
+#   - Audible/J.R.R. Tolkien/The Lord of the Rings
+#
+#   # 2. Type-scoped (an object) — silences only the listed warning types
+#   #    under this path. Other warnings on the same path stay visible.
+#   - path: Audible/J.R.R. Tolkien/The Lord of the Rings
+#     types:
+#       - warn_chapter_gaps
+#
+# Matching is case-insensitive and forward-slash-normalized, so the same
+# file works on Windows (backslashes) and macOS/Linux (forward slashes).
 #
 # Get the paths to add from output/audiobooks/warnings.json. Most audiobook
-# warnings use the `<Author>/<Book>` path shape.
+# warnings use a `<Category>/<Author>/<Book>` path shape (or `<Author>/<Book>`
+# if you don't use category subfolders). Get the warning types from the
+# `type` field of each entry, or from rules/audiobooks.yaml under `checks`.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -40,3 +51,11 @@
 # (Rare — usually only useful when one author's catalog has the same
 # recurring issue across every book.)
 # - Some Author
+
+
+# Silence one warning type for a specific path
+# (Most precise option. The example below silences ONLY chapter-gap warnings
+# on a single book — everything else under it stays visible.)
+# - path: Audible/J.R.R. Tolkien/The Lord of the Rings
+#   types:
+#     - warn_chapter_gaps

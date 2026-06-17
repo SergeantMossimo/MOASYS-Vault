@@ -89,30 +89,27 @@ Every catalog uses the same per-record `versions: [{category, quality}]` shape. 
       {
         "season": "1",
         "episode_count": 26,
-        "versions": [{ "category": "HD", "quality": "HD" }]
-      },
-      {
-        "season": "2",
-        "episode_count": 26,
-        "versions": [
-          { "category": "UHD", "quality": "UHD" },
-          { "category": "HD", "quality": "HD" }
+        "versions": [{ "category": "HD", "quality": "HD" }],
+        "episodes": [
+          { "episode_start": 1, "episode_end": 2, "title": "Broken Bow Part 1 And 2" },
+          { "episode_start": 3, "episode_end": 3, "title": "Fight or Flight" },
+          { "episode_start": 4, "episode_end": 4, "title": null }
         ]
       },
       {
         "season": "Specials",
-        "episode_count": 4,
-        "versions": [
-          { "category": "HD", "quality": "HD" },
-          { "category": "HD", "quality": "SD" }
-        ]
+        "episode_count": 1,
+        "versions": [{ "category": "HD", "quality": "HD" }],
+        "episodes": [{ "episode_start": 1, "episode_end": 1, "title": "Behind the Scenes" }]
       }
     ]
   }
 ]
 ```
 
-**Reading a season's versions:** if a season has the same `category` listed twice with different `quality` values (like the `Specials` example above), it means episodes inside that one folder don't all share the same quality — some are HD-quality and some are SD-quality, all sitting in the `HD/` folder. This is only meaningful if your library is organized by quality. Seasons where every episode has the same quality collapse to a single version.
+**Reading a season's versions:** if a season has the same `category` listed twice with different `quality` values, it means episodes inside that one folder don't all share the same quality. This is only meaningful if your library is organized by quality. Seasons where every episode has the same quality collapse to a single version.
+
+**Reading a season's episodes:** one entry per episode file on disk. `episode_start === episode_end` is a single-episode file; `episode_start !== episode_end` is a multi-episode file (e.g. `S01E01-E02`). `title` is `null` when the filename omits the trailing `- Episode Title` portion — those fire `warn_missing_episode_title` (summarized once per season). The TMDB validate pass uses these to check titles against TMDB.
 
 ### `music.json`
 
@@ -146,12 +143,15 @@ Every catalog uses the same per-record `versions: [{category, quality}]` shape. 
 
 ### `warnings.json` (shape shared across scan + validate)
 
+Every warning carries a stable `type` (the same identifier as the matching `checks.warn_*` toggle in `rules/<type>.yaml`), a `path`, and a human-readable `issue`. Some warnings also carry an `extension`. The `files` array is sorted by `(type, path)` so all warnings of the same kind are grouped together, alphabetised by path within each group.
+
 ```json
 {
   "generated": "2026-04-20T10:30:00+00:00",
   "count": 1,
   "files": [
     {
+      "type": "warn_non_primary",
       "path": "UHD/The Terminator (1984)/The Terminator (1984).mkv",
       "extension": ".mkv",
       "issue": "Non-.MP4 video file — may need re-encoding"
@@ -159,6 +159,8 @@ Every catalog uses the same per-record `versions: [{category, quality}]` shape. 
   ]
 }
 ```
+
+The `type` field also doubles as a target for type-scoped silencing in `ignored/<type>.yaml` — see [Configuration](CONFIG.md#ignoredtypeyaml).
 
 ---
 
@@ -192,46 +194,48 @@ The tables below show the human-readable issue text you'll see in `warnings.json
 
 ### Shows
 
-| Warning                                           | What it means                                                                                                       |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Non-primary video file — may need re-encoding     | The file exists but isn't your preferred format                                                                     |
-| No recognized video files found in season folder  | A season folder has no video files                                                                                  |
-| Show folder does not match Plex naming convention | Expected: `Show Title (YEAR)`                                                                                       |
-| Season folder does not match expected format      | Expected: `Season 01`. Special-season names like `Specials` are whitelisted in `ignored_season_names`               |
-| File name does not match Plex naming convention   | Expected: `Show Title (YEAR) - S01E01 - Episode Title` (episode title optional)                                     |
-| File show/year does not match show folder         | The episode file's show name or year doesn't match its parent show folder                                           |
-| File season does not match season folder          | The episode file is in the wrong season folder                                                                      |
-| Potential missing episodes                        | A gap was detected in episode numbers within a season                                                               |
-| Loose video files                                 | Episode files directly in a category folder or in a show folder (no `Season XX` wrapper) — NOT added to the catalog |
-| Unexpected subfolder in season folder             | Subfolders found inside a `Season XX/` folder — files inside them are NOT scanned                                   |
-| Unexpected file                                   | A non-video file that isn't a recognized Plex sidecar                                                               |
-| Quality mismatch                                  | The file's actual dimensions don't fit the bucket its category implies                                              |
-| Season exists in multiple qualities               | A single season has copies in two quality folders (whitelist via `acceptable_quality_combos`)                       |
-| TMDB no match _(validate pass)_                   | TMDB found nothing matching the title + year                                                                        |
-| TMDB low confidence _(validate pass)_             | TMDB match score below the confidence threshold                                                                     |
-| TMDB episode count _(validate pass)_              | Your local season has fewer episodes than TMDB lists                                                                |
-| TMDB canonical title _(validate pass)_            | Your folder title differs from TMDB's filename-safe canonical — a rename suggestion                                 |
+| Warning                                           | What it means                                                                                                                       |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Non-primary video file — may need re-encoding     | The file exists but isn't your preferred format                                                                                     |
+| No recognized video files found in season folder  | A season folder has no video files                                                                                                  |
+| Show folder does not match Plex naming convention | Expected: `Show Title (YEAR)`                                                                                                       |
+| Season folder does not match expected format      | Expected: `Season 01`. Special-season names like `Specials` are whitelisted in `ignored_season_names`                               |
+| File name does not match Plex naming convention   | Expected: `Show Title (YEAR) - S01E01 - Episode Title` (episode title optional)                                                     |
+| File show/year does not match show folder         | The episode file's show name or year doesn't match its parent show folder                                                           |
+| File season does not match season folder          | The episode file is in the wrong season folder                                                                                      |
+| Potential missing episodes                        | A gap was detected in episode numbers within a season                                                                               |
+| Missing episode titles                            | Episodes in this season match Plex's naming convention but omit the trailing `- Episode Title` portion. Summarised once per season. |
+| Loose video files                                 | Episode files directly in a category folder or in a show folder (no `Season XX` wrapper) — NOT added to the catalog                 |
+| Unexpected subfolder in season folder             | Subfolders found inside a `Season XX/` folder — files inside them are NOT scanned                                                   |
+| Unexpected file                                   | A non-video file that isn't a recognized Plex sidecar                                                                               |
+| Quality mismatch                                  | The file's actual dimensions don't fit the bucket its category implies                                                              |
+| Season exists in multiple qualities               | A single season has copies in two quality folders (whitelist via `acceptable_quality_combos`)                                       |
+| TMDB no match _(validate pass)_                   | TMDB found nothing matching the title + year                                                                                        |
+| TMDB low confidence _(validate pass)_             | TMDB match score below the confidence threshold                                                                                     |
+| TMDB episode count _(validate pass)_              | Your local season has fewer episodes than TMDB lists                                                                                |
+| TMDB episode title mismatch _(validate pass)_     | An episode's filename title doesn't match TMDB's title for that episode. Strict, filename-safe comparison.                          |
+| TMDB canonical title _(validate pass)_            | Your folder title differs from TMDB's filename-safe canonical — a rename suggestion                                                 |
 
 ### Music
 
-| Warning                                          | What it means                                                                                              |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| Non-primary audio file — may need re-encoding    | The file exists but isn't one of your preferred formats                                                    |
-| No recognized audio files found in album folder  | An album folder has no audio files                                                                         |
-| Track file name does not match naming convention | Expected: `01 - Track Name.ext` (single-disc) or `101 - Track Name.ext` (multi-disc)                       |
-| Artist folder name does not match pattern        | The artist folder doesn't match `patterns.artist_folder` (default is permissive)                           |
-| Album folder name does not match pattern         | The album folder doesn't match `patterns.album_folder` (default is permissive)                             |
-| Suspicious characters in folder name             | Trailing whitespace, Windows-illegal characters, or a reserved name — these silently fragment Plex         |
-| Potential missing tracks                         | A gap was detected in track numbers within an album (checked per-disc)                                     |
-| Duplicate album                                  | The same artist + album appears in more than one category                                                  |
-| Loose audio files                                | Audio files in a category folder root or in an artist folder (no album wrapper) — NOT added to the catalog |
-| Unexpected subfolder in album folder             | Subfolders found inside an album — files inside them are NOT scanned                                       |
-| Unexpected file                                  | A non-audio file that isn't a recognized sidecar                                                           |
-| Inconsistent audio quality                       | The album mixes codecs (FLAC + MP3) or has a wide bitrate spread (>64 kbps)                                |
-| Compilation detected                             | The album has multiple distinct AlbumArtist values — likely belongs under `Various Artists/`               |
-| Folder/tag mismatch                              | The folder name disagrees with the embedded tag (artist or album)                                          |
-| Missing tags                                     | Tracks are missing required embedded tags (title, album, or artist)                                        |
-| Track number mismatch                            | The filename's track number disagrees with the embedded tag's track number                                 |
+| Warning                                          | What it means                                                                                                                              |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Non-primary audio file — may need re-encoding    | The file exists but isn't one of your preferred formats                                                                                    |
+| No recognized audio files found in album folder  | An album folder has no audio files                                                                                                         |
+| Track file name does not match naming convention | Expected: `01 - Track Name.ext` (single-disc) or `101 - Track Name.ext` (multi-disc)                                                       |
+| Artist folder name does not match pattern        | The artist folder doesn't match `patterns.artist_folder` (default is permissive)                                                           |
+| Album folder name does not match pattern         | The album folder doesn't match `patterns.album_folder` (default is permissive)                                                             |
+| Suspicious characters in folder name             | Trailing whitespace, Windows-illegal characters, or a reserved name — these silently fragment Plex                                         |
+| Potential missing tracks                         | A gap was detected in track numbers within an album (checked per-disc)                                                                     |
+| Duplicate album                                  | The same artist + album appears in more than one category                                                                                  |
+| Loose audio files                                | Audio files in a category folder root or in an artist folder (no album wrapper) — NOT added to the catalog                                 |
+| Unexpected subfolder in album folder             | Subfolders found inside an album — files inside them are NOT scanned                                                                       |
+| Unexpected file                                  | A non-audio file that isn't a recognized sidecar                                                                                           |
+| Inconsistent audio quality                       | The album mixes codecs (FLAC + MP3) or has a wide bitrate spread (>64 kbps). Codec mixes can be whitelisted via `acceptable_codec_combos`. |
+| Compilation detected                             | The album has multiple distinct AlbumArtist values — likely belongs under `Various Artists/`                                               |
+| Folder/tag mismatch                              | The folder name disagrees with the embedded tag (artist or album)                                                                          |
+| Missing tags                                     | Tracks are missing required embedded tags (title, album, or artist)                                                                        |
+| Track number mismatch                            | The filename's track number disagrees with the embedded tag's track number                                                                 |
 
 ### Audiobooks
 

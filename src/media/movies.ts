@@ -170,6 +170,7 @@ export function createMoviesModule(
         )
         if (looseRoot.length > 0) {
           warnings.add(
+            'warn_loose_files',
             folderName,
             `${looseRoot.length} loose video file(s) in media folder root — Plex expects each movie inside a 'Movie Title (YEAR)' folder. ` +
               `Move each file into its own correctly-named folder.`
@@ -187,6 +188,7 @@ export function createMoviesModule(
         if (unexpected.length > 0) {
           const names = unexpected.map(e => `'${e.name}'`).join(', ')
           warnings.add(
+            'warn_unexpected_entries',
             folderName,
             `Unexpected file(s) in media folder root: ${names}. ` +
               `Expected only Movie Title (YEAR)/ subfolders plus Plex sidecars (${rules.sidecar_extensions.join(', ')}).`
@@ -205,7 +207,7 @@ export function createMoviesModule(
         try {
           allFiles = fs.readdirSync(movieFolderPath, { withFileTypes: true })
         } catch {
-          warnings.add(folderRel, 'Permission denied reading folder')
+          warnings.add('permission_denied', folderRel, 'Permission denied reading folder')
           continue
         }
 
@@ -216,6 +218,7 @@ export function createMoviesModule(
           if (subfolders.length > 0) {
             const names = subfolders.map(s => `'${s.name}'`).join(', ')
             warnings.add(
+              'warn_extra_subfolders',
               folderRel,
               `Unexpected subfolder(s) in movie folder: ${names}. ` +
                 `Plex expects all video files directly inside the Movie Title (YEAR)/ folder. ` +
@@ -234,6 +237,7 @@ export function createMoviesModule(
           if (unexpected.length > 0) {
             const names = unexpected.map(e => `'${e.name}'`).join(', ')
             warnings.add(
+              'warn_unexpected_entries',
               folderRel,
               `Unexpected file(s) in movie folder: ${names}. ` +
                 `Expected only video files plus Plex sidecars (${rules.sidecar_extensions.join(', ')}).`
@@ -249,7 +253,7 @@ export function createMoviesModule(
 
         if (videoFiles.length === 0) {
           if (rules.checks.warn_no_videos) {
-            warnings.add(folderRel, 'No recognized video files found in folder')
+            warnings.add('warn_no_videos', folderRel, 'No recognized video files found in folder')
           }
           continue
         }
@@ -258,6 +262,7 @@ export function createMoviesModule(
           for (const f of nonPrimary) {
             const ext = path.extname(f.name).toLowerCase()
             warnings.add(
+              'warn_non_primary',
               path.join(folderRel, f.name),
               `${formatPrimaryExts(rules.primary_extension)} video file — may need re-encoding`,
               ext
@@ -275,6 +280,7 @@ export function createMoviesModule(
           if (!parsed) {
             if (rules.checks.warn_bad_file_name) {
               warnings.add(
+                'warn_bad_file_name',
                 path.join(folderRel, f.name),
                 'File name does not match Plex naming convention'
               )
@@ -288,6 +294,7 @@ export function createMoviesModule(
           if (edition === '') {
             if (rules.checks.warn_empty_edition) {
               warnings.add(
+                'warn_empty_edition',
                 path.join(folderRel, f.name),
                 'Empty edition tag found — {edition-} has no value after the dash'
               )
@@ -298,6 +305,7 @@ export function createMoviesModule(
           if (fileYear < yearMin || fileYear > yearMax) {
             if (rules.checks.warn_suspicious_year) {
               warnings.add(
+                'warn_suspicious_year',
                 path.join(folderRel, f.name),
                 `Suspicious year (${fileYear}) — expected between ${yearMin} and ${yearMax}`
               )
@@ -306,7 +314,11 @@ export function createMoviesModule(
 
           if (!parsedFolder) {
             if (rules.checks.warn_bad_folder_name) {
-              warnings.add(folderRel, 'Folder name does not match Plex naming convention')
+              warnings.add(
+                'warn_bad_folder_name',
+                folderRel,
+                'Folder name does not match Plex naming convention'
+              )
             }
           } else {
             const { title: folderTitle, year: folderYear } = parsedFolder
@@ -314,6 +326,7 @@ export function createMoviesModule(
             if (fileTitle.toLowerCase() !== folderTitle.toLowerCase()) {
               if (rules.checks.warn_title_mismatch) {
                 warnings.add(
+                  'warn_title_mismatch',
                   path.join(folderRel, f.name),
                   `File title '${fileTitle}' does not match folder title '${folderTitle}'`
                 )
@@ -323,6 +336,7 @@ export function createMoviesModule(
             if (fileYear !== folderYear) {
               if (rules.checks.warn_year_mismatch) {
                 warnings.add(
+                  'warn_year_mismatch',
                   path.join(folderRel, f.name),
                   `File year (${fileYear}) does not match folder year (${folderYear}) in '${entry.name}'`
                 )
@@ -336,6 +350,7 @@ export function createMoviesModule(
           if (existing !== undefined) {
             if (rules.checks.warn_duplicate_edition) {
               warnings.add(
+                'warn_duplicate_edition',
                 path.join(folderRel, f.name),
                 `Duplicate edition — another file already claims ${!edition ? 'no edition' : `'${edition}'`}: '${existing}'`
               )
@@ -413,6 +428,7 @@ export function createMoviesModule(
         if (isAcceptableCombo(qualities, rules.acceptable_quality_combos)) continue
 
         warnings.add(
+          'warn_multi_quality',
           movieDisplayName(record),
           `Movie exists in multiple qualities: ${sortQualities(qualities).join(', ')}`
         )

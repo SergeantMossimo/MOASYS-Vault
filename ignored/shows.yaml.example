@@ -12,13 +12,24 @@
 #   2. Add path prefixes below — one per line.
 #   3. Re-run `npm run shows`. Matching warnings disappear from the output.
 #
-# How matching works: each entry is a path PREFIX. A warning whose `path`
-# starts with one of these (slash- or end-of-string-bounded) is silenced.
-# Matching is case-insensitive and forward-slash-normalized, so it works on
-# Windows and macOS/Linux libraries alike.
+# Two entry shapes — pick whichever fits each case:
+#
+#   # 1. Path-only (a bare string) — silences EVERY warning under this path.
+#   - HD/Some Show (2020)/Season 2
+#
+#   # 2. Type-scoped (an object) — silences only the listed warning types
+#   #    under this path. Other warnings on the same path stay visible.
+#   - path: HD/Some Show (2020)/Season 2
+#     types:
+#       - warn_episode_gaps
+#       - warn_tmdb_episode_count
+#
+# Matching is case-insensitive and forward-slash-normalized, so the same
+# file works on Windows (backslashes) and macOS/Linux (forward slashes).
 #
 # Get the paths to add from output/shows/warnings.json and
-# output/shows/validation-warnings.json.
+# output/shows/validation-warnings.json. Get the warning types from the
+# `type` field of each entry, or from rules/shows.yaml under `checks`.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -47,3 +58,12 @@
 # (Drops EVERY warning under this folder.)
 # - Other HD
 # - Other SD
+
+
+# Silence one warning type for a specific path
+# (Most precise option. The example below silences ONLY the episode-gap
+# warnings for that season — everything else under it stays visible.)
+# - path: HD/Some Show (2020)/Season 2
+#   types:
+#     - warn_episode_gaps
+#     - warn_tmdb_episode_count

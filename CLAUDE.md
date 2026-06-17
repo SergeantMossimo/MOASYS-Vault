@@ -63,6 +63,8 @@ The loader (`src/core/rules/loader.ts`) deep-merges the layers, resolves the `'c
 
 Every check emits warnings only. Never auto-fix. Warning messages should include a **recommended fix** when possible (see existing `warn_loose_files` / `warn_quality_mismatch` messages for the pattern). Each warning is gated by a `rules.checks.warn_*` toggle so the user can silence noise.
 
+Each call to `warnings.add(type, path, issue, extension?)` passes a stable `type` — almost always the matching `warn_*` identifier from the rules schema. The exceptions are filesystem-level failures that aren't user-toggleable (e.g. `permission_denied`). The `type` field is what `warnings.json` is sorted by, what shows up in the output's per-entry `type` field, and what `ignored/<type>.yaml` matches against when entries use the type-scoped object form. If you add a new check, the `type` string must equal the rules toggle name.
+
 ## Useful commands
 
 ```bash

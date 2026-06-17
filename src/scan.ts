@@ -21,7 +21,7 @@ import { AppConfig, BaseMediaConfig, MediaModule, WarningCollector } from './cor
 import { loadConfig } from './core/config'
 import { scan, writeJson, writeWarnings } from './core/scanner'
 import { loadRules } from './core/rules/loader'
-import { loadIgnoredPaths } from './core/ignored'
+import { IgnoredEntry, loadIgnoredPaths } from './core/ignored'
 import { parseRunnerArgs, writeJsonOutput } from './core/runner-shared'
 
 import { createMoviesModule } from './media/movies'
@@ -107,8 +107,9 @@ interface MediaTypeEntry<TRecord, TOutput, TConfig extends BaseMediaConfig> {
   outputDir: string
   cachePath: string
   label: string
-  /** Path prefixes loaded from rules/<type>.ignored.yaml — silences warnings. */
-  ignoredPaths: string[]
+  /** Entries loaded from ignored/<type>.yaml — silences warnings on matching
+   *  paths (optionally scoped to specific warning types via the object form). */
+  ignoredPaths: IgnoredEntry[]
   probe: (
     config: TConfig,
     cache: ProbeCache,

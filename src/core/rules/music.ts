@@ -54,6 +54,19 @@ export const MusicRulesSchema = z.object({
    */
   sidecar_extensions: z.array(z.string()),
 
+  /**
+   * Codec combinations that are intentional and should NOT trigger
+   * `warn_quality_inconsistent`. Listed as quality sets — order doesn't
+   * matter. Codec names use the same upper-case form as the album's
+   * `audio_quality_summary` (FLAC, MP3, AAC, ALAC, OGG, WAV, etc.).
+   *
+   * Only applies to codec-MIX cases. Bitrate-spread cases within a single
+   * codec (e.g. MP3 192 mixed with MP3 320) still fire the warning even
+   * when [MP3] is whitelisted — for that, fix the encoding or silence the
+   * specific album via `ignored/music.yaml`.
+   */
+  acceptable_codec_combos: z.array(z.array(z.string())),
+
   /** Per-warning toggles. */
   checks: z.object({
     warn_non_primary: z.boolean(),
@@ -145,6 +158,9 @@ export const defaultMusicRules: MusicRules = MusicRulesSchema.parse({
     '.m3u8',
     '.pdf',
   ],
+  // Empty by default — most users want every codec mix flagged. Add combos
+  // here to whitelist intentional mixes (e.g. transitional FLAC + MP3 albums).
+  acceptable_codec_combos: [],
   checks: {
     warn_non_primary: true,
     warn_no_audio: true,

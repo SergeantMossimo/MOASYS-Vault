@@ -327,6 +327,25 @@ acceptable_quality_combos:
 
 ---
 
+### `acceptable_codec_combos`
+
+**Applies to:** music only.
+
+**What it is:** A list of codec sets that are explicitly OK to coexist within a single album. After deriving each track's codec, an album that mixes FLAC and MP3 resolves to the codec set `{FLAC, MP3}` — listing `[FLAC, MP3]` here tells the scanner that's intentional, not a hygiene problem. Only applies to codec MIX cases. Bitrate-spread within a single codec (e.g. `MP3 192` mixed with `MP3 320`) still fires `warn_quality_inconsistent` even when `[MP3]` is whitelisted on its own.
+
+**Why you'd change it:** You intentionally keep mixed-codec albums (e.g. a FLAC rip kept alongside a couple of MP3 promo tracks). The default is empty — every codec mix is flagged.
+
+**Related warnings:** `warn_quality_inconsistent` — silenced for the codec-mix case when the album's codec set matches a combo listed here. The bitrate-spread case is never silenced by this setting; use `ignored/music.yaml` to silence specific albums.
+
+**Example:**
+
+```yaml
+acceptable_codec_combos:
+  - [FLAC, MP3]
+```
+
+---
+
 ### `checks`
 
 **Applies to:** all four types.
@@ -362,7 +381,7 @@ The defaults live in code at `src/core/rules/<type>.ts` alongside the schema, so
 
 ## `ignored/<type>.yaml` — silencing specific warnings
 
-For warnings you can't or don't want to fix (an incomplete season that never aired, a folder name you've decided not to change), drop a per-type ignore file in the `ignored/` folder. It's a flat list of path prefixes — any warning whose `path` matches one is silently dropped from `warnings.json` and counted in the run summary.
+For warnings you can't or don't want to fix (an incomplete season that never aired, a folder name you've decided not to change, a known false positive), drop a per-type ignore file in the `ignored/` folder. Any warning whose `path` matches an entry is silently dropped from `warnings.json` and counted in the run summary.
 
 ```text
 ignored/
@@ -378,18 +397,33 @@ ignored/
 
 Each `.yaml.example` ships with commented usage patterns. To use: copy it to `<type>.yaml` (drop the `.example` suffix) and uncomment / edit the entries you need.
 
+### Two entry shapes
+
+Each entry can be either a bare **string** (path prefix that silences every warning) or an **object** with a path prefix plus a list of warning types to silence:
+
 ```yaml
 # ignored/shows.yaml — gitignored, per-user
-- Channel 4 Catchup (2024) # silences every warning under this show
-- Some Show (2020)/Season 2 # silences just one season
-- Old VHS Rip (1995)
+
+# Path-only: silences EVERY warning under this path.
+- HD/Channel 4 Catchup (2024)
+- HD/Some Show (2020)/Season 2
+
+# Type-scoped: silences only the listed warning types under this path.
+# Other warnings on the same path stay visible.
+- path: UHD/Star Trek Enterprise (2001)/Season 4
+  types:
+    - warn_episode_gaps
+    - warn_tmdb_episode_count
 ```
 
-Matching rules:
+The warning `type` shows up in each entry of `warnings.json` and matches the corresponding toggle name in `rules/<type>.yaml` under `checks` — so you can copy-paste from one to the other.
+
+### Matching rules
 
 - **Prefix-based**: an entry like `Show (2020)` silences `Show (2020)` itself plus everything under it (`Show (2020)/Season 1`, `Show (2020)/Season 1/file.mp4`).
 - **Path-boundary respected**: `Show` does _not_ silence `Show 2 (2020)` — the prefix has to be followed by `/` or be an exact match.
 - **Case-insensitive + separator-normalized**: `Show` matches both `Show/...` and `show\...`, so the same file works on Windows and macOS/Linux.
+- **Type-scoped entries** silence a warning only when the warning's `type` is in the entry's `types` list. Path-only entries silence every type.
 
 The `<type>.yaml` files are **gitignored** since they encode per-library decisions that don't belong in the shared repo. Missing or comments-only files are treated as "no ignores."
 

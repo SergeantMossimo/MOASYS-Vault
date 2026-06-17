@@ -13,12 +13,17 @@
  * etc.) where the user can't fix the underlying issue but doesn't want the
  * `warn_episode_gaps` / `warn_tmdb_episode_count` noise on every run.
  *
- * Shape (the YAML is just a flat list of path prefixes):
+ * Two entry shapes — both allowed in the same file:
  *
- *   # ignored/shows.yaml
+ *   # Path-only entry: silences EVERY warning under this path prefix.
  *   - HD/Channel 4 Catchup (2024)
- *   - HD/Some Show (2020)/Season 2
- *   - SD/Old VHS Rip (1995)
+ *
+ *   # Type-scoped entry: silences only the listed warning types under
+ *   # this path prefix. Other warnings on the same path stay visible.
+ *   - path: HD/Some Show (2020)/Season 2
+ *     types:
+ *       - warn_episode_gaps
+ *       - warn_tmdb_episode_count
  *
  * Matching is case-insensitive and forward-slash-normalized so the same
  * file works on Windows (where warnings.json paths use `\`) and macOS/Linux.
@@ -37,21 +42,42 @@ import { z } from 'zod'
 // Schema
 // ─────────────────────────────────────────────
 
-/** Flat list of non-empty path prefixes. */
-export const IgnoredPathsSchema = z.array(z.string().min(1))
+/**
+ * One entry in the ignore list. Either:
+ *   - a bare string (path prefix that silences every warning type), or
+ *   - an object with a path prefix and one or more warning types to silence.
+ */
+const IgnoredEntryInputSchema = z.union([
+  z.string().min(1),
+  z.object({
+    path: z.string().min(1),
+    types: z.array(z.string().min(1)).min(1),
+  }),
+])
+
+export const IgnoredPathsSchema = z.array(IgnoredEntryInputSchema)
+
+/** Normalized in-memory representation. `types === null` means "all types". */
+export interface IgnoredEntry {
+  path: string
+  types: string[] | null
+}
 
 // ─────────────────────────────────────────────
 // Loader
 // ─────────────────────────────────────────────
 
 /**
- * Load and validate `ignored/<mediaType>.yaml`. Returns the parsed list of
- * path prefixes, or an empty list when the file doesn't exist.
+ * Load and validate `ignored/<mediaType>.yaml`. Returns the normalized list
+ * of entries, or an empty list when the file doesn't exist.
+ *
+ * String entries are normalized to `{path, types: null}` so the matcher only
+ * needs to handle one shape.
  *
  * On YAML parse error or schema validation failure: prints a clear message
  * and exits — same fail-fast pattern as the rules loader.
  */
-export function loadIgnoredPaths(projectRoot: string, mediaType: string): string[] {
+export function loadIgnoredPaths(projectRoot: string, mediaType: string): IgnoredEntry[] {
   const file = path.join(projectRoot, 'ignored', `${mediaType}.yaml`)
   if (!fs.existsSync(file)) return []
 
@@ -68,7 +94,7 @@ export function loadIgnoredPaths(projectRoot: string, mediaType: string): string
 
   const parsed = IgnoredPathsSchema.safeParse(raw)
   if (!parsed.success) {
-    console.error(`\n  Error: ${file} must be a list of non-empty strings:`)
+    console.error(`\n  Error: ${file} must be a list of strings or {path, types: [...]} objects:`)
     for (const issue of parsed.error.issues) {
       const where = issue.path.length > 0 ? issue.path.join('.') : '(root)'
       console.error(`    - ${where}: ${issue.message}`)
@@ -76,7 +102,11 @@ export function loadIgnoredPaths(projectRoot: string, mediaType: string): string
     process.exit(1)
   }
 
-  return parsed.data
+  return parsed.data.map(entry =>
+    typeof entry === 'string'
+      ? { path: entry, types: null }
+      : { path: entry.path, types: entry.types }
+  )
 }
 
 // ─────────────────────────────────────────────
@@ -93,15 +123,24 @@ function normalize(s: string): string {
 }
 
 /**
- * Return true if `warningPath` is silenced by any of the `ignoredPaths`.
- * A path is silenced when it equals an ignored entry OR is nested under one
- * (i.e. starts with `entry + '/'`). Empty ignore list never silences.
+ * Return true if a warning is silenced by any entry in `ignored`.
+ * A warning matches an entry when:
+ *   1. its `path` equals the entry's path OR starts with `entry.path + '/'`, AND
+ *   2. the entry has no `types` (matches all) OR the entry's `types` includes
+ *      the warning's `type`.
  */
-export function isPathIgnored(warningPath: string, ignoredPaths: string[]): boolean {
-  if (ignoredPaths.length === 0) return false
+export function isWarningIgnored(
+  warningType: string,
+  warningPath: string,
+  ignored: IgnoredEntry[]
+): boolean {
+  if (ignored.length === 0) return false
   const target = normalize(warningPath)
-  return ignoredPaths.some(entry => {
-    const e = normalize(entry)
-    return target === e || target.startsWith(e + '/')
+  return ignored.some(entry => {
+    const e = normalize(entry.path)
+    const pathMatches = target === e || target.startsWith(e + '/')
+    if (!pathMatches) return false
+    if (entry.types === null) return true
+    return entry.types.includes(warningType)
   })
 }
