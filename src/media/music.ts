@@ -431,7 +431,8 @@ export function createMusicModule(
 
     /**
      * Post-merge check: emit one warning per album that ended up in multiple
-     * categories. Runs once after all folders are scanned.
+     * categories. Cross-category sets listed in `acceptable_album_combos`
+     * are silently passed.
      */
     postScan(records: Map<string, ArtistRecord>, warnings: WarningCollector): void {
       if (!rules.checks.warn_duplicate_album) return
@@ -440,6 +441,8 @@ export function createMusicModule(
         for (const album of artist.albums.values()) {
           const cats = distinctCategories(album.versions)
           if (cats.length <= 1) continue
+          const catSet = new Set(cats)
+          if (isAcceptableComboSet(catSet, rules.acceptable_album_combos)) continue
           const ordered = categoryOrder.filter(c => cats.includes(c))
           warnings.add(
             'warn_duplicate_album',
@@ -450,4 +453,9 @@ export function createMusicModule(
       }
     },
   }
+}
+
+/** Return true if `set` matches one of the acceptable category combos. */
+function isAcceptableComboSet(set: Set<string>, combos: readonly string[][]): boolean {
+  return combos.some(combo => combo.length === set.size && combo.every(c => set.has(c)))
 }

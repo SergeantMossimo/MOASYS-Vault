@@ -3,11 +3,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-import {
-  parseRunnerArgs,
-  writeJsonOutput,
-  writeWarningsOutput,
-} from '../../../src/core/runner-shared'
+import { parseRunnerArgs, writeJsonOutput, writeWarnings } from '../../../src/core/runner-shared'
 import { WarningCollector } from '../../../src/core/types'
 
 const VALID_TYPES = ['movies', 'shows', 'music', 'audiobooks'] as const
@@ -127,7 +123,7 @@ describe('writeJsonOutput', () => {
   })
 })
 
-describe('writeWarningsOutput', () => {
+describe('writeWarnings', () => {
   let tmpDir: string
   let logSpy: ReturnType<typeof vi.spyOn>
 
@@ -141,28 +137,26 @@ describe('writeWarningsOutput', () => {
     logSpy.mockRestore()
   })
 
-  it('writes a warnings file with the expected shape', () => {
+  it('writes a warnings file with the by_type shape', () => {
     const out = path.join(tmpDir, 'warnings.json')
     const warnings = new WarningCollector()
     warnings.add('warn_bad_file_name', 'path/to/file', 'bad name')
 
-    writeWarningsOutput(out, warnings)
+    writeWarnings(out, warnings)
     const parsed = JSON.parse(fs.readFileSync(out, 'utf-8'))
     expect(parsed.count).toBe(1)
-    expect(parsed.files[0]).toEqual({
-      type: 'warn_bad_file_name',
-      path: 'path/to/file',
-      issue: 'bad name',
+    expect(parsed.by_type).toEqual({
+      warn_bad_file_name: [{ path: 'path/to/file', issue: 'bad name' }],
     })
     expect(parsed.generated).toMatch(/^\d{4}-\d{2}-\d{2}T/) // ISO 8601
   })
 
-  it('writes an empty warnings file when no warnings were collected', () => {
+  it('writes an empty by_type object when no warnings were collected', () => {
     const out = path.join(tmpDir, 'warnings.json')
-    writeWarningsOutput(out, new WarningCollector())
+    writeWarnings(out, new WarningCollector())
     const parsed = JSON.parse(fs.readFileSync(out, 'utf-8'))
     expect(parsed.count).toBe(0)
-    expect(parsed.files).toEqual([])
+    expect(parsed.by_type).toEqual({})
   })
 
   it('preserves the optional extension field on individual warnings', () => {
@@ -170,9 +164,9 @@ describe('writeWarningsOutput', () => {
     const warnings = new WarningCollector()
     warnings.add('warn_non_primary', 'path/to/file.mkv', 'Non-MP4', '.mkv')
 
-    writeWarningsOutput(out, warnings)
+    writeWarnings(out, warnings)
     const parsed = JSON.parse(fs.readFileSync(out, 'utf-8'))
-    expect(parsed.files[0].extension).toBe('.mkv')
+    expect(parsed.by_type.warn_non_primary[0].extension).toBe('.mkv')
   })
 
   it('logs the warning count', () => {
@@ -180,7 +174,7 @@ describe('writeWarningsOutput', () => {
     const warnings = new WarningCollector()
     warnings.add('warn_a', 'a', '1')
     warnings.add('warn_b', 'b', '2')
-    writeWarningsOutput(out, warnings)
+    writeWarnings(out, warnings)
     expect(logSpy).toHaveBeenCalledWith(expect.stringMatching(/2 warnings/))
   })
 })
@@ -261,5 +255,78 @@ describe('WarningCollector', () => {
     expect(wc.count()).toBe(1)
     expect(wc.all().map(w => w.type)).toEqual(['warn_bad_file_name'])
     expect(wc.silencedCount()).toBe(1)
+  })
+
+  describe('groupedByType', () => {
+    it('returns an empty object when nothing was collected', () => {
+      const wc = new WarningCollector()
+      expect(wc.groupedByType()).toEqual({})
+    })
+
+    it('groups warnings by type with path-sorted rows per bucket', () => {
+      const wc = new WarningCollector()
+      wc.add('warn_b', 'z', '1')
+      wc.add('warn_a', 'y', '2')
+      wc.add('warn_a', 'x', '3')
+
+      const grouped = wc.groupedByType()
+      // Outer keys are sorted alphabetically for stable JSON output.
+      expect(Object.keys(grouped)).toEqual(['warn_a', 'warn_b'])
+      expect(grouped['warn_a']).toEqual([
+        { path: 'x', issue: '3' },
+        { path: 'y', issue: '2' },
+      ])
+      expect(grouped['warn_b']).toEqual([{ path: 'z', issue: '1' }])
+    })
+
+    it('preserves the extension field on individual rows', () => {
+      const wc = new WarningCollector()
+      wc.add('warn_non_primary', 'file.mkv', 'Non-MP4', '.mkv')
+      expect(wc.groupedByType()['warn_non_primary']).toEqual([
+        { path: 'file.mkv', issue: 'Non-MP4', extension: '.mkv' },
+      ])
+    })
+
+    it('omits the extension field when it was not provided', () => {
+      const wc = new WarningCollector()
+      wc.add('warn_thing', 'p', 'i')
+      expect('extension' in (wc.groupedByType()['warn_thing']?.[0] ?? {})).toBe(false)
+    })
+  })
+
+  describe('countByType', () => {
+    it('returns an empty array when nothing was collected', () => {
+      const wc = new WarningCollector()
+      expect(wc.countByType()).toEqual([])
+    })
+
+    it('orders by count descending', () => {
+      const wc = new WarningCollector()
+      wc.add('warn_b', 'p1', 'i')
+      wc.add('warn_b', 'p2', 'i')
+      wc.add('warn_a', 'p3', 'i')
+      wc.add('warn_a', 'p4', 'i')
+      wc.add('warn_a', 'p5', 'i')
+      wc.add('warn_c', 'p6', 'i')
+
+      expect(wc.countByType()).toEqual([
+        { type: 'warn_a', count: 3 },
+        { type: 'warn_b', count: 2 },
+        { type: 'warn_c', count: 1 },
+      ])
+    })
+
+    it('breaks count ties alphabetically by type', () => {
+      const wc = new WarningCollector()
+      wc.add('warn_zeta', 'p1', 'i')
+      wc.add('warn_alpha', 'p2', 'i')
+      wc.add('warn_mu', 'p3', 'i')
+      // All three counts are 1 → alphabetical tiebreaker
+      expect(wc.countByType()).toEqual([
+        { type: 'warn_alpha', count: 1 },
+        { type: 'warn_mu', count: 1 },
+        { type: 'warn_zeta', count: 1 },
+      ])
+    })
   })
 })

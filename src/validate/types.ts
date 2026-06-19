@@ -107,18 +107,28 @@ export interface ResolvedSearch {
   candidates: number[]
 }
 
+/**
+ * Wrapped cache entry. `fetched_at` is an ISO 8601 UTC timestamp captured at
+ * `set()` time; the runner uses it to expire stale entries.
+ */
+export interface TimestampedEntry<T> {
+  value: T
+  fetched_at: string
+}
+
 /** Cache file shape — schema-versioned. */
 export interface ValidationCacheFile<T> {
   version: number
-  entries: Record<string, T>
+  entries: Record<string, TimestampedEntry<T>>
 }
 
 /**
- * Default version for entity-detail caches (movies, shows). These store
- * raw TMDB responses, so they only need a new version if TMDB's response
- * shape changes incompatibly.
+ * Default version for entity-detail caches (movies, shows, show-seasons).
+ *
+ *   v1: untimestamped entries — `Record<string, T>`
+ *   v2: timestamped entries — `Record<string, {value: T, fetched_at: string}>`
  */
-export const CACHE_VERSION = 1
+export const CACHE_VERSION = 2
 
 // ─────────────────────────────────────────────
 // Validation output shapes
@@ -194,5 +204,10 @@ export interface ShowValidation {
  *   v1: initial scoring (case-insensitive, strip all punctuation as space)
  *   v2: filename-safe normalization (strip only filename-illegal chars,
  *       fold diacritics)
+ *   v3: timestamped entries (every cache file gained `fetched_at` for TTL)
+ *   v4: search fall-back without year-filter on empty year-filtered result —
+ *       fixes false `warn_tmdb_no_match` on films whose folder year differs
+ *       from TMDB's primary_release_date year (web-series origin, bundled
+ *       re-releases, etc.)
  */
-export const SEARCH_CACHE_VERSION = 2
+export const SEARCH_CACHE_VERSION = 4

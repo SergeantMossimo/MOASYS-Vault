@@ -3,7 +3,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-import { scan, writeJson, writeWarnings } from '../../../src/core/scanner'
+import { scan, writeJson } from '../../../src/core/scanner'
 import { createMoviesModule } from '../../../src/media/movies'
 import { defaultMoviesRules } from '../../../src/core/rules/movies'
 import { WarningCollector } from '../../../src/core/types'
@@ -65,46 +65,9 @@ describe('writeJson', () => {
   })
 })
 
-describe('writeWarnings', () => {
-  let tmpDir: string
-  let logSpy: ReturnType<typeof vi.spyOn>
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moasys-scanner-w-'))
-    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-  })
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true })
-    logSpy.mockRestore()
-  })
-
-  it('writes a warnings JSON file with the expected shape', () => {
-    const warnings = new WarningCollector()
-    warnings.add('warn_thing', 'file.mp4', 'something bad')
-
-    const out = path.join(tmpDir, 'warnings.json')
-    writeWarnings(warnings, out)
-
-    const parsed = JSON.parse(fs.readFileSync(out, 'utf-8'))
-    expect(parsed.count).toBe(1)
-    expect(parsed.files[0]).toEqual({
-      type: 'warn_thing',
-      path: 'file.mp4',
-      issue: 'something bad',
-    })
-    expect(parsed.generated).toMatch(/^\d{4}-/) // ISO timestamp
-  })
-
-  it('writes count=0 and empty files array when no warnings collected', () => {
-    const out = path.join(tmpDir, 'warnings.json')
-    writeWarnings(new WarningCollector(), out)
-
-    const parsed = JSON.parse(fs.readFileSync(out, 'utf-8'))
-    expect(parsed.count).toBe(0)
-    expect(parsed.files).toEqual([])
-  })
-})
+// writeWarnings tests live in test/unit/core/runner-shared.test.ts since
+// the function moved out of scanner.ts as part of unifying the two near-
+// identical implementations into one.
 
 describe('scan — top-level integration', () => {
   let tmpDir: string

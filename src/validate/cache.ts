@@ -1,15 +1,22 @@
 /**
  * validate/cache.ts
  * -----------------
- * JSON-backed caches for TMDB lookups. Three separate files so each cache
+ * JSON-backed caches for TMDB lookups. Four separate files so each cache
  * stays human-inspectable and debuggable:
  *
- *   cache/tmdb-search.json   ← search lookups   (key = "<type>|<title>|<year>")
- *   cache/tmdb-movies.json   ← movie details   (key = TMDB ID as string)
- *   cache/tmdb-shows.json    ← show details    (key = TMDB ID as string)
+ *   cache/tmdb-search.json        ← search lookups   (key = "<type>|<title>|<year>")
+ *   cache/tmdb-movies.json        ← movie details   (key = TMDB ID as string)
+ *   cache/tmdb-shows.json         ← show details    (key = TMDB ID as string)
+ *   cache/tmdb-show-seasons.json  ← per-season ep details (key = "<showId>:<seasonNumber>")
  *
  * Each cache shares the same load/save logic via the generic JsonCache class.
  * Schema mismatches are non-fatal — we discard and rebuild.
+ *
+ * Entry timestamping: every entry is wrapped as {value, fetched_at} so the
+ * runner can prune entries older than a user-configurable threshold via
+ * `pruneOlderThan(days)`, then re-fetch. TMDB metadata changes infrequently
+ * but does change (year corrections, added seasons, episode title fixes) —
+ * without TTL the user has to delete cache files by hand to see updates.
  *
  * Caches are write-through: callers `set()` after a successful API call,
  * then `save()` once at end of run.
@@ -18,14 +25,14 @@
 import fs from 'fs'
 import path from 'path'
 
-import { ValidationCacheFile } from './types'
+import { TimestampedEntry, ValidationCacheFile } from './types'
 
 // ─────────────────────────────────────────────
 // Generic JSON cache
 // ─────────────────────────────────────────────
 
 export class JsonCache<T> {
-  private entries = new Map<string, T>()
+  private entries = new Map<string, TimestampedEntry<T>>()
 
   /**
    * @param cachePath  absolute path to the JSON file on disk
@@ -79,7 +86,7 @@ export class JsonCache<T> {
   save(): void {
     fs.mkdirSync(path.dirname(this.cachePath), { recursive: true })
     // Sort keys for stable, diff-friendly output.
-    const sortedEntries: Record<string, T> = {}
+    const sortedEntries: Record<string, TimestampedEntry<T>> = {}
     for (const k of [...this.entries.keys()].sort()) {
       sortedEntries[k] = this.entries.get(k)!
     }
@@ -90,12 +97,14 @@ export class JsonCache<T> {
     fs.writeFileSync(this.cachePath, JSON.stringify(cf, null, 2), 'utf-8')
   }
 
+  /** Return the cached value (or undefined). Timestamp is internal. */
   get(key: string): T | undefined {
-    return this.entries.get(key)
+    return this.entries.get(key)?.value
   }
 
+  /** Store a value, stamping it with the current time. */
   set(key: string, value: T): void {
-    this.entries.set(key, value)
+    this.entries.set(key, { value, fetched_at: new Date().toISOString() })
   }
 
   has(key: string): boolean {
@@ -104,6 +113,28 @@ export class JsonCache<T> {
 
   size(): number {
     return this.entries.size
+  }
+
+  /**
+   * Drop entries whose `fetched_at` timestamp is older than `days` days ago.
+   * Returns the number of entries removed. Entries with an unparseable or
+   * missing timestamp are treated as old and pruned.
+   *
+   * Call this BEFORE doing TMDB lookups so the stale ones get re-fetched
+   * naturally on cache miss.
+   */
+  pruneOlderThan(days: number): number {
+    if (days <= 0) return 0
+    const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000
+    let removed = 0
+    for (const [key, entry] of this.entries) {
+      const ts = Date.parse(entry.fetched_at)
+      if (!Number.isFinite(ts) || ts < cutoffMs) {
+        this.entries.delete(key)
+        removed++
+      }
+    }
+    return removed
   }
 }
 

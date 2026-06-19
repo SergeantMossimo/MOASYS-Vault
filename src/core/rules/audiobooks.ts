@@ -45,6 +45,17 @@ export const AudiobooksRulesSchema = z.object({
    */
   sidecar_extensions: z.array(z.string()),
 
+  /**
+   * Category sets in which the same book may legitimately appear without
+   * firing `warn_duplicate_book`. Set-based comparison — order doesn't
+   * matter. Example: a book kept in both `Audible` and `Book On CD`
+   * categories is whitelisted by listing `[Audible, Book On CD]`.
+   *
+   * Empty default — every cross-category duplicate fires the warning.
+   * Most users likely won't need this; included for symmetry with music.
+   */
+  acceptable_book_combos: z.array(z.array(z.string())),
+
   /** Per-warning toggles. */
   checks: z.object({
     warn_non_primary: z.boolean(),
@@ -85,6 +96,8 @@ export const defaultAudiobooksRules: AudiobooksRules = AudiobooksRulesSchema.par
   audio_extensions: ['.m4b', '.mp3', '.aac', '.m4a', '.flac'],
   // Audiobook sidecars — NFO metadata, cover art, cuesheets, PDF booklets.
   sidecar_extensions: ['.nfo', '.jpg', '.jpeg', '.png', '.webp', '.cue', '.pdf'],
+  // Empty by default — every cross-category book duplicate fires the warning.
+  acceptable_book_combos: [],
   checks: {
     warn_non_primary: true,
     warn_no_audio: true,

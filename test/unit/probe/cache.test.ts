@@ -153,4 +153,59 @@ describe('ProbeCache', () => {
     cache.save()
     expect(fs.existsSync(cachePath)).toBe(true)
   })
+
+  describe('pruneOrphans', () => {
+    it('returns 0 and removes nothing when every entry still exists on disk', () => {
+      const root = path.join(tmpDir, 'media')
+      fs.mkdirSync(path.join(root, 'sub'), { recursive: true })
+      fs.writeFileSync(path.join(root, 'sub', 'a.mp4'), '')
+      fs.writeFileSync(path.join(root, 'sub', 'b.mp4'), '')
+
+      const cache = new ProbeCache(path.join(tmpDir, 'cache.json'))
+      cache.set('sub/a.mp4', 1, 1, sampleData())
+      cache.set('sub/b.mp4', 1, 1, sampleData())
+
+      expect(cache.pruneOrphans(root)).toBe(0)
+      expect(cache.size()).toBe(2)
+    })
+
+    it('drops entries whose files no longer exist under rootPath', () => {
+      const root = path.join(tmpDir, 'media')
+      fs.mkdirSync(root, { recursive: true })
+      fs.writeFileSync(path.join(root, 'kept.mp4'), '')
+
+      const cache = new ProbeCache(path.join(tmpDir, 'cache.json'))
+      cache.set('kept.mp4', 1, 1, sampleData())
+      cache.set('gone.mp4', 1, 1, sampleData())
+      cache.set('also-gone.mp4', 1, 1, sampleData())
+      expect(cache.size()).toBe(3)
+
+      expect(cache.pruneOrphans(root)).toBe(2)
+      expect(cache.size()).toBe(1)
+      expect(cache.get('kept.mp4', 1, 1)).not.toBeNull()
+      expect(cache.get('gone.mp4', 1, 1)).toBeNull()
+    })
+
+    it('handles forward-slash cache paths on Windows-style rootPath', () => {
+      const root = path.join(tmpDir, 'M')
+      fs.mkdirSync(path.join(root, 'Shows', 'X (2020)', 'Season 01'), { recursive: true })
+      fs.writeFileSync(
+        path.join(root, 'Shows', 'X (2020)', 'Season 01', 'X (2020) - S01E01.mp4'),
+        ''
+      )
+
+      const cache = new ProbeCache(path.join(tmpDir, 'cache.json'))
+      // Cache stores forward-slash paths even on Windows.
+      cache.set('Shows/X (2020)/Season 01/X (2020) - S01E01.mp4', 1, 1, sampleData())
+
+      expect(cache.pruneOrphans(root)).toBe(0)
+      expect(cache.size()).toBe(1)
+    })
+
+    it('is a no-op on an empty cache', () => {
+      const cache = new ProbeCache(path.join(tmpDir, 'cache.json'))
+      expect(cache.pruneOrphans(tmpDir)).toBe(0)
+      expect(cache.size()).toBe(0)
+    })
+  })
 })

@@ -182,6 +182,25 @@ describe('audiobooks module — warnings', () => {
     ).toBe(true)
   })
 
+  it('warn_duplicate_book: silenced when category set is in acceptable_book_combos', () => {
+    const result = runAudiobooksScan({
+      spec: {
+        Audible: {
+          Author: { Book: { '01 - Chapter.mp3': '' } },
+        },
+        'Book On CD': {
+          Author: { Book: { '01 - Chapter.mp3': '' } },
+        },
+      },
+      rules: {
+        acceptable_book_combos: [['Audible', 'Book On CD']],
+      },
+    })
+    expect(
+      result.warnings.some(w => w.issue.match(/Duplicate book found in multiple categories/))
+    ).toBe(false)
+  })
+
   it('warn_loose_files: audio files in author folder (no book wrapper)', () => {
     const result = runAudiobooksScan({
       spec: {

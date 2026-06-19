@@ -4,6 +4,7 @@ This page is the complete reference for what the scanner writes and every warnin
 
 - For workflow guidance see [Scans](SCANS.md).
 - For folder/file naming conventions see [Conventions](CONVENTIONS.md).
+- For machine-readable shapes (JSON Schema Draft 2020-12) of every output file, see [`schemas/`](../schemas/) at the repo root.
 
 ---
 
@@ -141,26 +142,43 @@ Every catalog uses the same per-record `versions: [{category, quality}]` shape. 
 ]
 ```
 
+### Catalog field notes for downstream consumers
+
+A few things to know if you're building a website (or anything else) on top of these JSON files:
+
+- **No `year` on music or audiobook catalogs.** Movies and shows have a `year` field; music and audiobooks don't. Album release years live in the embedded music tags and are exposed in `probe.json` under each track's `tags.year`; audiobooks have no defined year.
+- **`"default"` is the category sentinel.** When your library uses no subfolders (empty `categories` config), every version's `category` will be the literal string `"default"`. You can group by category safely without special-casing flat libraries.
+- **`authors` is always a string array.** Even single-author books come through as `["Single Author Name"]`, so consumers don't need to handle both shapes.
+- **`title` can be `null` on `episodes[]`.** When an episode filename omits the trailing `- Episode Title`, the `title` field is `null` rather than an empty string. Same applies elsewhere — null means "intentionally absent," never `undefined` or missing key.
+- **`quality` can be `null` on a `version`.** This means the file didn't fit any configured `quality_thresholds` bucket (movies/shows) or the file had no codec data (rare; usually a probe failure). Surface it as "unknown quality" in your UI.
+
 ### `warnings.json` (shape shared across scan + validate)
 
-Every warning carries a stable `type` (the same identifier as the matching `checks.warn_*` toggle in `rules/<type>.yaml`), a `path`, and a human-readable `issue`. Some warnings also carry an `extension`. The `files` array is sorted by `(type, path)` so all warnings of the same kind are grouped together, alphabetised by path within each group.
+Warnings are grouped by their `type` (the same identifier as the matching `checks.warn_*` toggle in `rules/<type>.yaml`) under `by_type`. Each row in a bucket carries a `path` and human-readable `issue`; some rows also carry an `extension`. Buckets are sparse — only types that actually fired appear as keys. Inside each bucket, rows are sorted alphabetically by path; the outer keys are sorted alphabetically too, so the file diffs cleanly across runs.
 
 ```json
 {
   "generated": "2026-04-20T10:30:00+00:00",
-  "count": 1,
-  "files": [
-    {
-      "type": "warn_non_primary",
-      "path": "UHD/The Terminator (1984)/The Terminator (1984).mkv",
-      "extension": ".mkv",
-      "issue": "Non-.MP4 video file — may need re-encoding"
-    }
-  ]
+  "count": 12,
+  "by_type": {
+    "warn_non_primary": [
+      {
+        "path": "UHD/The Terminator (1984)/The Terminator (1984).mkv",
+        "extension": ".mkv",
+        "issue": "Non-.MP4 video file — may need re-encoding"
+      }
+    ],
+    "warn_tmdb_no_match": [
+      {
+        "path": "UHD/'Twas The Night Before Christmas (1974)",
+        "issue": "TMDB found no match for ''Twas The Night Before Christmas' (1974). Possible typo in title or year, or this movie isn't in TMDB."
+      }
+    ]
+  }
 }
 ```
 
-The `type` field also doubles as a target for type-scoped silencing in `ignored/<type>.yaml` — see [Configuration](CONFIG.md#ignoredtypeyaml).
+The bucket key (a `warn_*` identifier) is the same string you use under `rules/<type>.yaml` `checks` and as a `types: [...]` entry in `ignored/<type>.yaml` — copy-pasteable across all three.
 
 ---
 
@@ -218,24 +236,25 @@ The tables below show the human-readable issue text you'll see in `warnings.json
 
 ### Music
 
-| Warning                                          | What it means                                                                                                                              |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Non-primary audio file — may need re-encoding    | The file exists but isn't one of your preferred formats                                                                                    |
-| No recognized audio files found in album folder  | An album folder has no audio files                                                                                                         |
-| Track file name does not match naming convention | Expected: `01 - Track Name.ext` (single-disc) or `101 - Track Name.ext` (multi-disc)                                                       |
-| Artist folder name does not match pattern        | The artist folder doesn't match `patterns.artist_folder` (default is permissive)                                                           |
-| Album folder name does not match pattern         | The album folder doesn't match `patterns.album_folder` (default is permissive)                                                             |
-| Suspicious characters in folder name             | Trailing whitespace, Windows-illegal characters, or a reserved name — these silently fragment Plex                                         |
-| Potential missing tracks                         | A gap was detected in track numbers within an album (checked per-disc)                                                                     |
-| Duplicate album                                  | The same artist + album appears in more than one category                                                                                  |
-| Loose audio files                                | Audio files in a category folder root or in an artist folder (no album wrapper) — NOT added to the catalog                                 |
-| Unexpected subfolder in album folder             | Subfolders found inside an album — files inside them are NOT scanned                                                                       |
-| Unexpected file                                  | A non-audio file that isn't a recognized sidecar                                                                                           |
-| Inconsistent audio quality                       | The album mixes codecs (FLAC + MP3) or has a wide bitrate spread (>64 kbps). Codec mixes can be whitelisted via `acceptable_codec_combos`. |
-| Compilation detected                             | The album has multiple distinct AlbumArtist values — likely belongs under `Various Artists/`                                               |
-| Folder/tag mismatch                              | The folder name disagrees with the embedded tag (artist or album)                                                                          |
-| Missing tags                                     | Tracks are missing required embedded tags (title, album, or artist)                                                                        |
-| Track number mismatch                            | The filename's track number disagrees with the embedded tag's track number                                                                 |
+| Warning                                          | What it means                                                                                                                                        |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Non-primary audio file — may need re-encoding    | The file exists but isn't one of your preferred formats                                                                                              |
+| No recognized audio files found in album folder  | An album folder has no audio files                                                                                                                   |
+| Track file name does not match naming convention | Expected: `01 - Track Name.ext` (single-disc) or `101 - Track Name.ext` (multi-disc)                                                                 |
+| Artist folder name does not match pattern        | The artist folder doesn't match `patterns.artist_folder` (default is permissive)                                                                     |
+| Album folder name does not match pattern         | The album folder doesn't match `patterns.album_folder` (default is permissive)                                                                       |
+| Suspicious characters in folder name             | Trailing whitespace, Windows-illegal characters, or a reserved name — these silently fragment Plex                                                   |
+| Potential missing tracks                         | A gap was detected in track numbers within an album (checked per-disc)                                                                               |
+| Duplicate album                                  | The same artist + album appears in more than one category                                                                                            |
+| Loose audio files                                | Audio files in a category folder root or in an artist folder (no album wrapper) — NOT added to the catalog                                           |
+| Unexpected subfolder in album folder             | Subfolders found inside an album — files inside them are NOT scanned                                                                                 |
+| Unexpected file                                  | A non-audio file that isn't a recognized sidecar                                                                                                     |
+| Inconsistent audio quality                       | The album mixes codecs (FLAC + MP3) or has a wide bitrate spread (>64 kbps). Codec mixes can be whitelisted via `acceptable_codec_combos`.           |
+| Compilation detected                             | The album has multiple distinct AlbumArtist values — likely belongs under `Various Artists/`                                                         |
+| Folder/tag mismatch                              | The folder name disagrees with the embedded tag (artist or album)                                                                                    |
+| Missing tags                                     | Tracks are missing required embedded tags (title, album, or artist)                                                                                  |
+| Track number mismatch                            | The filename's track number disagrees with the embedded tag's track number                                                                           |
+| Mono audio                                       | The album contains tracks encoded as mono (single channel). Summarised once per album: "N of M tracks are mono". Most modern music should be stereo. |
 
 ### Audiobooks
 

@@ -111,16 +111,27 @@ export class TmdbClient {
   // ─── Movies ──────────────────────────────────────────────────────────
 
   /**
-   * Search for movies matching `title`. `year` is sent as the `year`
-   * query param, which TMDB uses to bias results — it returns close-year
-   * matches too, so the caller filters further.
+   * Search for movies matching `title`. The `year` query param is a STRICT
+   * filter on TMDB's `primary_release_date.year` — it does not return close-
+   * year matches. So we try a year-filtered search first (best signal-to-
+   * noise when TMDB's primary release year matches what's in the folder)
+   * and fall back to a title-only search if that returns nothing. The
+   * caller still does year-tolerance scoring on whatever comes back, so a
+   * one- or two-year discrepancy never blocks a match.
+   *
+   * Common cases for the fallback: films TMDB lists by their original
+   * theatrical release year while the folder uses the wide-release year
+   * (or vice versa), films originally released as a web/TV series, and
+   * boxed bundle releases.
    */
   async searchMovie(title: string, year: number): Promise<TmdbMovieSearchResult[]> {
-    const path =
-      `/search/movie?query=${encodeURIComponent(title)}` +
-      `&year=${year}&include_adult=false&language=en-US`
-    const data = await this.request<{ results: TmdbMovieSearchResult[] }>(path)
-    return data.results ?? []
+    const base = `/search/movie?query=${encodeURIComponent(title)}&include_adult=false&language=en-US`
+    const withYear = await this.request<{ results: TmdbMovieSearchResult[] }>(
+      `${base}&year=${year}`
+    )
+    if (withYear.results && withYear.results.length > 0) return withYear.results
+    const withoutYear = await this.request<{ results: TmdbMovieSearchResult[] }>(base)
+    return withoutYear.results ?? []
   }
 
   /** Fetch full movie details by TMDB ID. */
@@ -131,16 +142,20 @@ export class TmdbClient {
   // ─── Shows ───────────────────────────────────────────────────────────
 
   /**
-   * Search for TV shows matching `name`. `year` is sent as
-   * `first_air_date_year` which biases TMDB's ranking but isn't a strict
-   * filter — caller still verifies the year on the result.
+   * Search for TV shows matching `name`. `first_air_date_year` is a STRICT
+   * filter on TMDB, not a bias — same approach as `searchMovie`: try
+   * year-filtered first, fall back to title-only on empty. The caller's
+   * year-tolerance scoring still handles small discrepancies between
+   * TMDB's first-air year and the folder year.
    */
   async searchShow(name: string, year: number): Promise<TmdbShowSearchResult[]> {
-    const path =
-      `/search/tv?query=${encodeURIComponent(name)}` +
-      `&first_air_date_year=${year}&include_adult=false&language=en-US`
-    const data = await this.request<{ results: TmdbShowSearchResult[] }>(path)
-    return data.results ?? []
+    const base = `/search/tv?query=${encodeURIComponent(name)}&include_adult=false&language=en-US`
+    const withYear = await this.request<{ results: TmdbShowSearchResult[] }>(
+      `${base}&first_air_date_year=${year}`
+    )
+    if (withYear.results && withYear.results.length > 0) return withYear.results
+    const withoutYear = await this.request<{ results: TmdbShowSearchResult[] }>(base)
+    return withoutYear.results ?? []
   }
 
   /**

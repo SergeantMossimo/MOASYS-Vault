@@ -82,15 +82,16 @@ export function writeJsonOutput(outputPath: string, data: unknown): void {
 }
 
 /**
- * Write a WarningCollector's contents to a warnings JSON file (shape:
- * `{ generated, count, files }`). Used by scan, probe, and validate.
+ * Write a WarningCollector's contents to a warnings JSON file. Shape:
+ * `{ generated, count, by_type }`. Used by the scan and validate runners.
+ * Arg order matches `writeJsonOutput` for consistency.
  */
-export function writeWarningsOutput(outputPath: string, warnings: WarningCollector): void {
+export function writeWarnings(outputPath: string, warnings: WarningCollector): void {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true })
   const out: WarningsOutput = {
     generated: new Date().toISOString(),
     count: warnings.count(),
-    files: warnings.all(),
+    by_type: warnings.groupedByType(),
   }
   fs.writeFileSync(outputPath, JSON.stringify(out, null, 2), 'utf-8')
   console.log(`    [OUT] ${outputPath}  (${warnings.count()} warnings)`)

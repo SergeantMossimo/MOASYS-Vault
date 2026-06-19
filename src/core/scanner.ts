@@ -12,7 +12,7 @@
 import fs from 'fs'
 import path from 'path'
 
-import { WarningCollector, WarningsOutput, MediaModule, BaseMediaConfig } from './types'
+import { WarningCollector, MediaModule, BaseMediaConfig } from './types'
 import { ProbeData } from '../probe/types'
 
 // ─────────────────────────────────────────────
@@ -93,18 +93,4 @@ export function writeJson<TRecord, TOutput, TConfig extends BaseMediaConfig>(
   const data = mediaModule.serialize(records)
   fs.writeFileSync(outputPath, JSON.stringify(data, null, 2), 'utf-8')
   console.log(`    [OUT] ${outputPath}  (${data.length} entries)`)
-}
-
-/**
- * Write all collected warnings to a JSON file.
- * Timestamp is UTC ISO 8601 to match the Python version.
- */
-export function writeWarnings(warnings: WarningCollector, outputPath: string): void {
-  const out: WarningsOutput = {
-    generated: new Date().toISOString(),
-    count: warnings.count(),
-    files: warnings.all(),
-  }
-  fs.writeFileSync(outputPath, JSON.stringify(out, null, 2), 'utf-8')
-  console.log(`    [OUT] ${outputPath}  (${warnings.count()} warnings)`)
 }

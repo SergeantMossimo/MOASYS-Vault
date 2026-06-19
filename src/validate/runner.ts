@@ -24,7 +24,7 @@ import path from 'path'
 import { MovieOutput, ShowOutput, WarningCollector } from '../core/types'
 import { loadRules } from '../core/rules/loader'
 import { loadIgnoredPaths } from '../core/ignored'
-import { parseRunnerArgs, writeJsonOutput, writeWarningsOutput } from '../core/runner-shared'
+import { parseRunnerArgs, writeJsonOutput, writeWarnings } from '../core/runner-shared'
 
 import { MoviesRulesSchema, defaultMoviesRules } from '../core/rules/movies'
 import { ShowsRulesSchema, defaultShowsRules } from '../core/rules/shows'
@@ -39,6 +39,7 @@ import {
   TmdbMovieDetails,
   TmdbShowDetails,
   TmdbSeasonDetails,
+  CACHE_VERSION,
   SEARCH_CACHE_VERSION,
 } from './types'
 
@@ -82,7 +83,7 @@ function readShowsScan(): ShowOutput[] {
 // Per-type runners
 // ─────────────────────────────────────────────
 
-async function runMovies(client: TmdbClient): Promise<void> {
+async function runMovies(client: TmdbClient, refreshOlderThanDays: number): Promise<void> {
   console.log(`\n${'─'.repeat(50)}`)
   console.log(`  MOASYS-Vault — Validate Movies`)
   console.log(`  ${new Date().toLocaleString()}`)
@@ -103,9 +104,18 @@ async function runMovies(client: TmdbClient): Promise<void> {
     path.join(CACHE_DIR, 'tmdb-search.json'),
     SEARCH_CACHE_VERSION
   )
-  const detailsCache = new JsonCache<TmdbMovieDetails>(path.join(CACHE_DIR, 'tmdb-movies.json'))
+  const detailsCache = new JsonCache<TmdbMovieDetails>(
+    path.join(CACHE_DIR, 'tmdb-movies.json'),
+    CACHE_VERSION
+  )
+  const prunedSearch = searchCache.pruneOlderThan(refreshOlderThanDays)
+  const prunedDetails = detailsCache.pruneOlderThan(refreshOlderThanDays)
+  const prunedSummary =
+    refreshOlderThanDays > 0
+      ? ` (pruned ${prunedSearch} search + ${prunedDetails} details older than ${refreshOlderThanDays}d)`
+      : ''
   console.log(
-    `    [CACHE] ${searchCache.size()} search entries, ${detailsCache.size()} movie-details entries`
+    `    [CACHE] ${searchCache.size()} search entries, ${detailsCache.size()} movie-details entries${prunedSummary}`
   )
 
   const warnings = new WarningCollector(loadIgnoredPaths(SCRIPT_DIR, 'movies'))
@@ -127,7 +137,7 @@ async function runMovies(client: TmdbClient): Promise<void> {
   console.log('\n  Writing output...')
   const outDir = path.join(OUTPUT_DIR, 'movies')
   writeJsonOutput(path.join(outDir, 'validation.json'), data)
-  writeWarningsOutput(path.join(outDir, 'validation-warnings.json'), warnings)
+  writeWarnings(path.join(outDir, 'validation-warnings.json'), warnings)
 
   searchCache.save()
   detailsCache.save()
@@ -138,11 +148,16 @@ async function runMovies(client: TmdbClient): Promise<void> {
     `\n  Done — ${warnings.count()} validation warnings${silencedSummary}. ${client.totalRequests} TMDB requests.`
   )
   if (warnings.count() > 0) {
+    const breakdown = warnings
+      .countByType()
+      .map(({ type, count }) => `${type} (${count})`)
+      .join(', ')
+    console.log(`    ${breakdown}`)
     console.log(`  → Review output/movies/validation-warnings.json`)
   }
 }
 
-async function runShows(client: TmdbClient): Promise<void> {
+async function runShows(client: TmdbClient, refreshOlderThanDays: number): Promise<void> {
   console.log(`\n${'─'.repeat(50)}`)
   console.log(`  MOASYS-Vault — Validate Shows`)
   console.log(`  ${new Date().toLocaleString()}`)
@@ -163,12 +178,23 @@ async function runShows(client: TmdbClient): Promise<void> {
     path.join(CACHE_DIR, 'tmdb-search.json'),
     SEARCH_CACHE_VERSION
   )
-  const detailsCache = new JsonCache<TmdbShowDetails>(path.join(CACHE_DIR, 'tmdb-shows.json'))
-  const seasonsCache = new JsonCache<TmdbSeasonDetails>(
-    path.join(CACHE_DIR, 'tmdb-show-seasons.json')
+  const detailsCache = new JsonCache<TmdbShowDetails>(
+    path.join(CACHE_DIR, 'tmdb-shows.json'),
+    CACHE_VERSION
   )
+  const seasonsCache = new JsonCache<TmdbSeasonDetails>(
+    path.join(CACHE_DIR, 'tmdb-show-seasons.json'),
+    CACHE_VERSION
+  )
+  const prunedSearch = searchCache.pruneOlderThan(refreshOlderThanDays)
+  const prunedDetails = detailsCache.pruneOlderThan(refreshOlderThanDays)
+  const prunedSeasons = seasonsCache.pruneOlderThan(refreshOlderThanDays)
+  const prunedSummary =
+    refreshOlderThanDays > 0
+      ? ` (pruned ${prunedSearch} search + ${prunedDetails} details + ${prunedSeasons} seasons older than ${refreshOlderThanDays}d)`
+      : ''
   console.log(
-    `    [CACHE] ${searchCache.size()} search entries, ${detailsCache.size()} show-details entries, ${seasonsCache.size()} season-details entries`
+    `    [CACHE] ${searchCache.size()} search entries, ${detailsCache.size()} show-details entries, ${seasonsCache.size()} season-details entries${prunedSummary}`
   )
 
   const warnings = new WarningCollector(loadIgnoredPaths(SCRIPT_DIR, 'shows'))
@@ -191,7 +217,7 @@ async function runShows(client: TmdbClient): Promise<void> {
   console.log('\n  Writing output...')
   const outDir = path.join(OUTPUT_DIR, 'shows')
   writeJsonOutput(path.join(outDir, 'validation.json'), data)
-  writeWarningsOutput(path.join(outDir, 'validation-warnings.json'), warnings)
+  writeWarnings(path.join(outDir, 'validation-warnings.json'), warnings)
 
   searchCache.save()
   detailsCache.save()
@@ -203,6 +229,11 @@ async function runShows(client: TmdbClient): Promise<void> {
     `\n  Done — ${warnings.count()} validation warnings${silencedSummary}. ${client.totalRequests} TMDB requests.`
   )
   if (warnings.count() > 0) {
+    const breakdown = warnings
+      .countByType()
+      .map(({ type, count }) => `${type} (${count})`)
+      .join(', ')
+    console.log(`    ${breakdown}`)
     console.log(`  → Review output/shows/validation-warnings.json`)
   }
 }
@@ -220,8 +251,36 @@ function printHelp(): void {
     npm run validate:shows      Validate shows against TMDB (incl. season episode counts)
     npm run validate:all        Validate both
 
+  Flags:
+    --refresh-older-than=Nd     Re-fetch any cache entries older than N days
+                                (e.g. 30 or 30d). Without this flag, all
+                                cached entries are used regardless of age.
+
   Requires .secrets.json with a TMDB API v3 key. See .secrets.json.example.
   `)
+}
+
+/**
+ * Pull `--refresh-older-than=Nd` (or `=N`) out of process.argv, returning the
+ * number of days (0 = no refresh). Mutates argv so parseRunnerArgs sees a
+ * clean view afterwards.
+ */
+function extractRefreshOlderThanFlag(): number {
+  const flagPrefix = '--refresh-older-than='
+  const argIndex = process.argv.findIndex(a => a.startsWith(flagPrefix))
+  if (argIndex === -1) return 0
+
+  const value = process.argv[argIndex]!.slice(flagPrefix.length)
+  const match = value.match(/^(\d+)d?$/)
+  if (!match) {
+    console.error(
+      `\n  Error: --refresh-older-than expects a number of days (e.g. 30 or 30d), got '${value}'`
+    )
+    process.exit(1)
+  }
+
+  process.argv.splice(argIndex, 1)
+  return parseInt(match[1]!, 10)
 }
 
 // Only movies and shows have a validate pass — music and audiobooks aren't
@@ -229,6 +288,10 @@ function printHelp(): void {
 const VALIDATE_TYPES = ['movies', 'shows'] as const
 
 async function main(): Promise<void> {
+  // Extract validate-only flags before parseRunnerArgs (which expects to see
+  // only the standard --type/--all/--help flag set).
+  const refreshOlderThanDays = extractRefreshOlderThanFlag()
+
   const parsed = parseRunnerArgs(VALIDATE_TYPES)
 
   if (parsed.kind === 'help') {
@@ -243,12 +306,12 @@ async function main(): Promise<void> {
   const client = new TmdbClient(secrets.tmdb.api_key)
 
   if (parsed.kind === 'all') {
-    await runMovies(client)
-    await runShows(client)
+    await runMovies(client, refreshOlderThanDays)
+    await runShows(client, refreshOlderThanDays)
   } else if (parsed.type === 'movies') {
-    await runMovies(client)
+    await runMovies(client, refreshOlderThanDays)
   } else {
-    await runShows(client)
+    await runShows(client, refreshOlderThanDays)
   }
 
   console.log()

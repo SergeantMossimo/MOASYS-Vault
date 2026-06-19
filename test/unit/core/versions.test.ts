@@ -160,6 +160,26 @@ describe('finalizeVersions', () => {
   it('handles empty input', () => {
     expect(finalizeVersions([], ['UHD'])).toEqual([])
   })
+
+  it('treats two null-quality versions in the same category as equal (no swap)', () => {
+    const input: Version[] = [
+      { category: 'Music', quality: null },
+      { category: 'Music', quality: null },
+    ]
+    // Both null → tie → no reordering, and dedupVersions collapses to one.
+    expect(finalizeVersions(input, ['Music'])).toEqual([{ category: 'Music', quality: null }])
+  })
+
+  it('sorts null quality after non-null quality within the same category', () => {
+    const input: Version[] = [
+      { category: 'Music', quality: null },
+      { category: 'Music', quality: 'FLAC' },
+    ]
+    expect(finalizeVersions(input, ['Music'])).toEqual([
+      { category: 'Music', quality: 'FLAC' },
+      { category: 'Music', quality: null },
+    ])
+  })
 })
 
 describe('distinctCategories', () => {

@@ -6,6 +6,8 @@
  * everywhere it's used — no silent mismatches between modules.
  */
 
+import { IgnoredEntry, isWarningIgnored } from './ignored'
+
 // ─────────────────────────────────────────────
 // Config types
 // ─────────────────────────────────────────────
@@ -51,7 +53,11 @@ export interface AppConfig {
 // Warning types
 // ─────────────────────────────────────────────
 
-/** A single warning entry written to warnings.json */
+/**
+ * A single warning entry. `type` is carried internally so the collector can
+ * route to the right bucket; the on-disk form (under `by_type[<type>]`)
+ * omits it since the bucket key already encodes the type.
+ */
 export interface Warning {
   type: string // Stable machine-readable identifier (e.g. 'warn_bad_folder_name')
   path: string
@@ -59,11 +65,27 @@ export interface Warning {
   extension?: string // Optional — only present for non-primary file warnings
 }
 
-/** The full shape of warnings.json */
+/**
+ * One row inside a `by_type` bucket on disk. Same as Warning minus `type`,
+ * which is implied by the bucket key.
+ */
+export interface WarningRow {
+  path: string
+  issue: string
+  extension?: string
+}
+
+/**
+ * The on-disk shape of warnings.json / validation-warnings.json. Warnings are
+ * grouped by their type so consumers can scan one bucket at a time without
+ * filtering an array. `by_type` is sparse — only types with at least one hit
+ * appear as keys. Inside each bucket, rows are sorted alphabetically by path
+ * for stable, diff-friendly output.
+ */
 export interface WarningsOutput {
   generated: string // ISO 8601 UTC timestamp
   count: number
-  files: Warning[]
+  by_type: Record<string, WarningRow[]>
 }
 
 // ─────────────────────────────────────────────
@@ -264,14 +286,12 @@ export interface MediaModule<TRecord, TOutput, TConfig extends BaseMediaConfig> 
  * Passed into each media module so warnings can be added from anywhere
  * in the scanning process and written to warnings.json at the end.
  *
- * If constructed with `ignoredPaths`, any warning whose `path` matches an
- * ignore prefix (see `core/ignored.ts`) is silently dropped — the user's
- * way of permanently silencing warnings they can't or don't want to fix.
- * Silenced warnings are still counted via `silencedCount()` so the runner
- * can surface "N silenced" in its summary.
+ * If constructed with an `ignored` list, any warning that matches an entry
+ * (see `core/ignored.ts` for matching semantics) is silently dropped — the
+ * user's way of permanently silencing warnings they can't or don't want to
+ * fix. Silenced warnings are still counted via `silencedCount()` so the
+ * runner can surface "N silenced" in its summary.
  */
-import { IgnoredEntry, isWarningIgnored } from './ignored'
-
 export class WarningCollector {
   private warnings: Warning[] = []
   private silenced = 0
@@ -297,13 +317,61 @@ export class WarningCollector {
     this.warnings.push(entry)
   }
 
-  /** Return a copy of all collected warnings, sorted by (type, path) for
-   *  predictable grouping in warnings.json. */
+  /**
+   * Return a flat copy of all collected warnings, sorted by (type, path).
+   * Used by tests and by the per-type summary in the run output; the on-disk
+   * shape is built via `groupedByType()`.
+   */
   all(): Warning[] {
     return [...this.warnings].sort((a, b) => {
       if (a.type !== b.type) return a.type.localeCompare(b.type)
       return a.path.localeCompare(b.path)
     })
+  }
+
+  /**
+   * Return warnings grouped by their `type` for writing to warnings.json.
+   * Each bucket's rows are sorted alphabetically by path; the outer keys are
+   * sorted as well so JSON serialization is stable across runs. Sparse —
+   * only types with at least one hit appear as keys.
+   */
+  groupedByType(): Record<string, WarningRow[]> {
+    const buckets = new Map<string, WarningRow[]>()
+    for (const w of this.warnings) {
+      let bucket = buckets.get(w.type)
+      if (!bucket) {
+        bucket = []
+        buckets.set(w.type, bucket)
+      }
+      const row: WarningRow = { path: w.path, issue: w.issue }
+      if (w.extension !== undefined) row.extension = w.extension
+      bucket.push(row)
+    }
+
+    const sortedKeys = [...buckets.keys()].sort()
+    const out: Record<string, WarningRow[]> = {}
+    for (const key of sortedKeys) {
+      out[key] = buckets.get(key)!.sort((a, b) => a.path.localeCompare(b.path))
+    }
+    return out
+  }
+
+  /**
+   * Return a per-type tally of warnings collected, sorted by count descending
+   * (worst offenders first). Surfaced in the run output as a one-line summary
+   * after the existing `Done — X entries, Y warnings.` line.
+   */
+  countByType(): Array<{ type: string; count: number }> {
+    const counts = new Map<string, number>()
+    for (const w of this.warnings) {
+      counts.set(w.type, (counts.get(w.type) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => {
+        if (a.count !== b.count) return b.count - a.count
+        return a.type.localeCompare(b.type)
+      })
   }
 
   /** Return the total number of warnings collected (excludes silenced). */

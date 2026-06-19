@@ -6,6 +6,7 @@ import {
   compilePattern,
   detectQuality,
   resolveCategories,
+  sortQualities,
 } from '../../../../src/core/rules/helpers'
 
 describe('PatternSchema', () => {
@@ -144,5 +145,32 @@ describe('resolveCategories', () => {
   it('preserves input order', () => {
     const result = resolveCategories([{ name: 'C' }, { name: 'A' }, { name: 'B' }])
     expect(result.map(r => r.name)).toEqual(['C', 'A', 'B'])
+  })
+})
+
+describe('sortQualities', () => {
+  it('orders the known vocabulary best-to-worst (UHD, HD, SD)', () => {
+    expect(sortQualities(['SD', 'UHD', 'HD'])).toEqual(['UHD', 'HD', 'SD'])
+  })
+
+  it('puts unknown qualities AFTER all known ones, alphabetically among themselves', () => {
+    expect(sortQualities(['Custom B', 'HD', 'Custom A', 'UHD'])).toEqual([
+      'UHD',
+      'HD',
+      'Custom A',
+      'Custom B',
+    ])
+  })
+
+  it('falls back to alphabetical for two unknown qualities (both indexOf === -1)', () => {
+    expect(sortQualities(['Zeta', 'Alpha', 'Beta'])).toEqual(['Alpha', 'Beta', 'Zeta'])
+  })
+
+  it('handles a set as input (any iterable)', () => {
+    expect(sortQualities(new Set(['HD', 'UHD', 'SD']))).toEqual(['UHD', 'HD', 'SD'])
+  })
+
+  it('returns an empty array for an empty input', () => {
+    expect(sortQualities([])).toEqual([])
   })
 })

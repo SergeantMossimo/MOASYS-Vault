@@ -27,8 +27,9 @@
 # file works on Windows (backslashes) and macOS/Linux (forward slashes).
 #
 # Get the paths to add from output/movies/warnings.json and
-# output/movies/validation-warnings.json. Get the warning types from the
-# `type` field of each entry, or from rules/movies.yaml under `checks`.
+# output/movies/validation-warnings.json — paths live under each `by_type`
+# bucket. The bucket key (e.g. `warn_tmdb_no_match`) is the warning type;
+# you can also find every type listed in rules/movies.yaml under `checks`.
 # ─────────────────────────────────────────────────────────────────────────────
 
 

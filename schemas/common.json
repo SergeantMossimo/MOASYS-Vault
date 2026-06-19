@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moasys.local/vault/schemas/common.json",
+  "title": "MOASYS-Vault — Shared definitions",
+  "description": "Definitions reused across the per-type catalog schemas (movies, shows, music, audiobooks).",
+  "$defs": {
+    "Version": {
+      "type": "object",
+      "description": "One physical copy of a media item — where it lives (category) and what quality it is.",
+      "properties": {
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Subfolder under root_path where the copy lives. Literal 'default' for flat libraries (no categories configured)."
+        },
+        "quality": {
+          "type": ["string", "null"],
+          "description": "For movies/shows: the bucket from quality_thresholds the file's long edge falls into (UHD/HD/SD), or null when no bucket matches. For music/audiobooks: the uppercase file extension (FLAC, MP3, M4B, AAC, ...)."
+        }
+      },
+      "required": ["category", "quality"],
+      "additionalProperties": false
+    }
+  }
+}

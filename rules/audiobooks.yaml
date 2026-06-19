@@ -51,6 +51,16 @@ sidecar_extensions:
   - .jpg
   - .pdf
 
+# ── Acceptable cross-category book combos ───────────────────────────────────
+# Category sets where the same book may legitimately appear without firing
+# warn_duplicate_book. Set-based comparison — order doesn't matter.
+#
+# Example: a book kept in both `Audible` and `Book On CD` is whitelisted
+# with `- [Audible, Book On CD]`.
+#
+# Empty default = every cross-category duplicate is flagged.
+acceptable_book_combos: []
+
 # ── Per-warning toggles ─────────────────────────────────────────────────────
 # Set any to false to silence that warning everywhere. To silence on specific
 # paths only, use ignored/audiobooks.yaml instead.

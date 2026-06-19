@@ -318,6 +318,35 @@ export async function probeMusic(
     }
   }
 
+  // Mono-audio check — modern music is stereo, so an album of mono tracks
+  // usually indicates a bad rip or a downloaded preview. Per-album summary
+  // ("N of M tracks are mono") so we don't drown warnings.json in per-track
+  // entries. Legitimate mono albums (pre-stereo recordings, mono masters)
+  // can be silenced per-album via ignored/music.yaml.
+  if (rules.checks.warn_mono_audio) {
+    for (const artist of aggregated) {
+      for (const album of artist.albums) {
+        let mono = 0
+        let totalWithAudio = 0
+        for (const track of album.tracks) {
+          if (!track.audio || track.audio.channels === null) continue
+          totalWithAudio++
+          if (track.audio.channels === 1) mono++
+        }
+        if (mono === 0) continue
+        warnings.add(
+          'warn_mono_audio',
+          albumWarningPath(album.media_type, artist.artist, album.album),
+          `${mono} of ${totalWithAudio} track(s) in this album are mono (single audio channel). ` +
+            `Most music since the late 1950s is stereo — mono usually indicates a bad rip or a ` +
+            `downloaded preview. Re-rip from a stereo source, or silence this album via ` +
+            `ignored/music.yaml with types: [warn_mono_audio] if the mono is intentional ` +
+            `(pre-stereo recording, mono master).`
+        )
+      }
+    }
+  }
+
   // Tag-driven checks — only run when at least one track in any album has
   // tags. Saves time on libraries without ID3 data (rare but possible).
   analyzeTags(aggregated, rules, warnings)

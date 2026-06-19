@@ -167,6 +167,7 @@ MOASYS-Vault/
 ├── ignored/
 ├── output/
 ├── cache/
+├── schemas/
 ├── docs/
 └── src/
 ```
@@ -182,8 +183,20 @@ For day-to-day use, you'll only touch the top few:
 
 The rest is for contributors:
 
+- **`schemas/`** — JSON Schema (Draft 2020-12) definitions for every output file. Useful when building a downstream consumer (e.g. a personal website). See [`schemas/README.md`](schemas/README.md).
 - **`docs/`** — detailed reference for each topic (see [Documentation](#documentation) above).
 - **`src/`** — TypeScript source. Organized as `core/` (shared scaffolding), `media/` (scan logic per type), `probe/` (ffprobe + ID3), `validate/` (TMDB), plus `scan.ts` as the entry point.
+
+---
+
+## Recent additions
+
+A terse log of what's landed lately. Not formal release notes — just pointers to "what's new" if you're returning after time away.
+
+- **v0.6** — `warnings.json` and `validation-warnings.json` switched to a `by_type` map shape (sparse, alphabetised) instead of a flat `files` array. Run output now prints a per-type breakdown after the totals line. `WarningCollector` gained `groupedByType()` and `countByType()` views; the duplicate `writeWarnings` implementations were unified. JSON Schema files for every output landed under [`schemas/`](schemas/).
+- **v0.5** — `acceptable_album_combos` (music) and `acceptable_book_combos` (audiobooks) for whitelisting intentional cross-category duplicates. `warn_mono_audio` (music, default-on, per-album summary). TMDB cache TTL with `--refresh-older-than=Nd` opt-in flag. ffprobe cache orphan cleanup at end of each scan. Lazy rules loading — `npm run movies` only loads the movies rules.
+- **v0.4** — Type-scoped `ignored/<type>.yaml` entries: `{path, types: [...]}` alongside the existing bare-string form. TMDB episode-name validation (`warn_tmdb_episode_name_mismatch`, opt-in for multi-episode files via a separate toggle). `warn_missing_episode_title` (opt-out, per-season summary). Music probe paths now include the category prefix. Audiobook duplicate-book path normalised to `Author/Book Title` for parity with music.
+- **v0.3** — Every warning carries a stable `type` identifier matching its `warn_*` toggle. Validation-warning paths gained a category prefix when the library is organised by subfolder. All warning paths normalised to forward slashes for cross-OS consistency.
 
 ---
 

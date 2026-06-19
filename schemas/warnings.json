@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moasys.local/vault/schemas/warnings.json",
+  "title": "MOASYS-Vault — warnings.json (and validation-warnings.json)",
+  "description": "The on-disk shape for every warnings file the scanner writes. Warnings are grouped by type under by_type — sparse, only types that fired appear as keys. Rows inside each bucket are sorted alphabetically by path. The validation pass uses the same shape under output/<type>/validation-warnings.json.",
+  "type": "object",
+  "properties": {
+    "generated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of when the file was written."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total warnings collected. Equals the sum of every bucket's length. Excludes warnings silenced by ignored/<type>.yaml."
+    },
+    "by_type": {
+      "type": "object",
+      "description": "Map of warning-type identifier to an array of rows. Keys are 'warn_*' identifiers matching toggles in rules/<type>.yaml under `checks`.",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/WarningRow" }
+      }
+    }
+  },
+  "required": ["generated", "count", "by_type"],
+  "additionalProperties": false,
+  "$defs": {
+    "WarningRow": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Library-relative path, forward-slash-normalized. Locations the user opens to fix the issue."
+        },
+        "issue": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description of the issue. Includes a recommended fix when possible."
+        },
+        "extension": {
+          "type": "string",
+          "description": "Optional file extension. Only present for non-primary file warnings (warn_non_primary)."
+        }
+      },
+      "required": ["path", "issue"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -28,8 +28,9 @@
 # file works on Windows (backslashes) and macOS/Linux (forward slashes).
 #
 # Get the paths to add from output/shows/warnings.json and
-# output/shows/validation-warnings.json. Get the warning types from the
-# `type` field of each entry, or from rules/shows.yaml under `checks`.
+# output/shows/validation-warnings.json — paths live under each `by_type`
+# bucket. The bucket key (e.g. `warn_episode_gaps`) is the warning type;
+# you can also find every type listed in rules/shows.yaml under `checks`.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
