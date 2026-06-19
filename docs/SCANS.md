@@ -189,7 +189,7 @@ Confidence is scored from title-match strength (exact / prefix / substring) plus
 
 ### Caching
 
-Three caches keep TMDB calls minimal:
+Four caches keep TMDB calls minimal:
 
 - `cache/tmdb-search.json` — search-query to resolved-match lookup
 - `cache/tmdb-movies.json` — full movie records by TMDB ID
@@ -197,6 +197,18 @@ Three caches keep TMDB calls minimal:
 - `cache/tmdb-show-seasons.json` — per-season episode details (titles, air dates), only populated when `warn_tmdb_episode_name_mismatch` is enabled
 
 All gitignored. Re-runs are near-instant. Total first-run cost for the example library: ~10 min for movies, ~3 min for shows.
+
+#### Refreshing stale entries
+
+Every cache entry is timestamped at fetch time. By default, no entry ever expires — the cache file grows until you delete it. TMDB metadata does change occasionally (year corrections, added seasons, episode title fixes), so you may want to re-fetch entries older than some threshold:
+
+```bash
+# Re-fetch any TMDB record fetched more than 30 days ago
+npm run validate:movies -- --refresh-older-than=30d
+npm run validate:shows -- --refresh-older-than=30d
+```
+
+The flag accepts a number of days with optional `d` suffix (`30` and `30d` are equivalent). Without it, every cached entry is used regardless of age. A sensible cadence is once a month or so — the rate limiter throttles re-fetches the same way as fresh ones, so a full refresh is the same wall-clock cost as your first run.
 
 ### Rate limiting
 

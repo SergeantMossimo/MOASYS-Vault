@@ -27,10 +27,11 @@
 # Matching is case-insensitive and forward-slash-normalized, so the same
 # file works on Windows (backslashes) and macOS/Linux (forward slashes).
 #
-# Get the paths to add from output/audiobooks/warnings.json. Most audiobook
-# warnings use a `<Category>/<Author>/<Book>` path shape (or `<Author>/<Book>`
-# if you don't use category subfolders). Get the warning types from the
-# `type` field of each entry, or from rules/audiobooks.yaml under `checks`.
+# Get the paths to add from output/audiobooks/warnings.json — paths live under
+# each `by_type` bucket. Most audiobook warnings use a `<Category>/<Author>/<Book>`
+# path shape (or `<Author>/<Book>` if you don't use category subfolders).
+# The bucket key (e.g. `warn_duplicate_book`) is the warning type; you can
+# also find every type listed in rules/audiobooks.yaml under `checks`.
 # ─────────────────────────────────────────────────────────────────────────────
 
 

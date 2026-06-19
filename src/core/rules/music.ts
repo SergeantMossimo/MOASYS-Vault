@@ -67,6 +67,16 @@ export const MusicRulesSchema = z.object({
    */
   acceptable_codec_combos: z.array(z.array(z.string())),
 
+  /**
+   * Category sets in which the same album may legitimately appear without
+   * firing `warn_duplicate_album`. Set-based comparison — order doesn't
+   * matter. Example: the same album kept in both `Music` and `Soundtracks`
+   * categories is whitelisted by listing `[Music, Soundtracks]`.
+   *
+   * Empty default — every cross-category duplicate fires the warning.
+   */
+  acceptable_album_combos: z.array(z.array(z.string())),
+
   /** Per-warning toggles. */
   checks: z.object({
     warn_non_primary: z.boolean(),
@@ -127,6 +137,17 @@ export const MusicRulesSchema = z.object({
      * out-of-order tracks.
      */
     warn_track_number_mismatch: z.boolean(),
+    /**
+     * Album contains tracks encoded as mono (single audio channel).
+     * Per-album summary warning: "N of M tracks are mono". Most music
+     * since the late 1950s is stereo; mono usually indicates a bad rip,
+     * a downloaded preview, or an intentional historical recording.
+     *
+     * Legitimate mono albums (early jazz/blues, mono masters, etc.) can
+     * be silenced per-album via `ignored/music.yaml` with the type-scoped
+     * form (`types: [warn_mono_audio]`).
+     */
+    warn_mono_audio: z.boolean(),
   }),
 })
 
@@ -161,6 +182,10 @@ export const defaultMusicRules: MusicRules = MusicRulesSchema.parse({
   // Empty by default — most users want every codec mix flagged. Add combos
   // here to whitelist intentional mixes (e.g. transitional FLAC + MP3 albums).
   acceptable_codec_combos: [],
+  // Empty by default — every cross-category album duplicate fires the
+  // warning. Add combos here when the same album lives in two categories
+  // intentionally (e.g. a soundtrack kept in both Music and Soundtracks).
+  acceptable_album_combos: [],
   checks: {
     warn_non_primary: true,
     warn_no_audio: true,
@@ -178,5 +203,6 @@ export const defaultMusicRules: MusicRules = MusicRulesSchema.parse({
     warn_folder_tag_mismatch: true,
     warn_missing_tags: true,
     warn_track_number_mismatch: true,
+    warn_mono_audio: true,
   },
 })

@@ -225,6 +225,80 @@ describe('probeMusic', () => {
     expect(warnings.all().some(w => w.issue.match(/inconsistent audio quality/i))).toBe(true)
   })
 
+  it('emits warn_mono_audio summarising mono tracks in an album', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          Artist: {
+            Album: {
+              '01 - Mono.flac': '',
+              '02 - Stereo.flac': '',
+            },
+          },
+        },
+      },
+      probes: {
+        'Music/Artist/Album/01 - Mono.flac': fakeProbe({
+          audio: flacAudio({ channels: 1 }),
+        }),
+        'Music/Artist/Album/02 - Stereo.flac': fakeProbe({
+          audio: flacAudio({ channels: 2 }),
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+
+    const monoWarnings = warnings.all().filter(w => w.type === 'warn_mono_audio')
+    expect(monoWarnings).toHaveLength(1)
+    expect(monoWarnings[0]?.issue).toMatch(/1 of 2 track\(s\) in this album are mono/i)
+    expect(monoWarnings[0]?.path).toMatch(/Music\/Artist\/Album/)
+  })
+
+  it('does not emit warn_mono_audio when every track is stereo', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          Artist: {
+            Album: { '01 - Stereo.flac': '' },
+          },
+        },
+      },
+      probes: {
+        'Music/Artist/Album/01 - Stereo.flac': fakeProbe({
+          audio: flacAudio({ channels: 2 }),
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all().some(w => w.type === 'warn_mono_audio')).toBe(false)
+  })
+
+  it('respects the warn_mono_audio toggle', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          Artist: {
+            Album: { '01 - Mono.flac': '' },
+          },
+        },
+      },
+      probes: {
+        'Music/Artist/Album/01 - Mono.flac': fakeProbe({
+          audio: flacAudio({ channels: 1 }),
+        }),
+      },
+    })
+    const offRules: MusicRules = {
+      ...rules,
+      checks: { ...rules.checks, warn_mono_audio: false },
+    }
+
+    await probeMusic({ root_path: root }, offRules, cache, warnings)
+    expect(warnings.all().some(w => w.type === 'warn_mono_audio')).toBe(false)
+  })
+
   it('emits warn_compilation_detected when AlbumArtist values differ', async () => {
     const { rules, root, cache, warnings } = setup({
       spec: {

@@ -71,6 +71,16 @@ sidecar_extensions:
 # Empty default = every codec mix is flagged.
 acceptable_codec_combos: []
 
+# ── Acceptable cross-category album combos ──────────────────────────────────
+# Category sets where the same album may legitimately appear without firing
+# warn_duplicate_album. Set-based comparison — order doesn't matter.
+#
+# Example: a soundtrack kept in both `Music` and `Soundtracks` is whitelisted
+# with `- [Music, Soundtracks]`.
+#
+# Empty default = every cross-category duplicate is flagged.
+acceptable_album_combos: []
+
 # ── Per-warning toggles ─────────────────────────────────────────────────────
 # Set any to false to silence that warning everywhere. To silence on specific
 # paths only, use ignored/music.yaml instead.
@@ -91,3 +101,4 @@ checks:
   warn_folder_tag_mismatch: true      # Folder name disagrees with the embedded tag
   warn_missing_tags: true             # Required embedded tag fields are blank
   warn_track_number_mismatch: true    # Filename track number disagrees with the embedded tag
+  warn_mono_audio: true               # Album has tracks encoded as mono (single channel)

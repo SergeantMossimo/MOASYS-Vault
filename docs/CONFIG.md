@@ -346,6 +346,44 @@ acceptable_codec_combos:
 
 ---
 
+### `acceptable_album_combos`
+
+**Applies to:** music only.
+
+**What it is:** Category sets where the same album may legitimately appear without firing `warn_duplicate_album`. Set-based comparison — order doesn't matter. If your library splits, say, soundtracks across `Music` and a dedicated `Soundtracks` category, listing `[Music, Soundtracks]` tells the scanner that's intentional.
+
+**Why you'd change it:** You intentionally keep the same album in multiple categories. Default empty — every cross-category duplicate is flagged.
+
+**Related warnings:** `warn_duplicate_album` — silenced when an album's category set matches a combo listed here.
+
+**Example:**
+
+```yaml
+acceptable_album_combos:
+  - [Music, Soundtracks]
+```
+
+---
+
+### `acceptable_book_combos`
+
+**Applies to:** audiobooks only.
+
+**What it is:** Category sets where the same book may legitimately appear without firing `warn_duplicate_book`. Same shape as `acceptable_album_combos` (music) and `acceptable_quality_combos` (movies/shows).
+
+**Why you'd change it:** You keep the same book in multiple categories (e.g. an Audible m4b alongside a Book On CD mp3 rip). Default empty — every cross-category duplicate is flagged.
+
+**Related warnings:** `warn_duplicate_book` — silenced when a book's category set matches a combo listed here.
+
+**Example:**
+
+```yaml
+acceptable_book_combos:
+  - [Audible, Book On CD]
+```
+
+---
+
 ### `checks`
 
 **Applies to:** all four types.
@@ -416,7 +454,7 @@ Each entry can be either a bare **string** (path prefix that silences every warn
     - warn_tmdb_episode_count
 ```
 
-The warning `type` shows up in each entry of `warnings.json` and matches the corresponding toggle name in `rules/<type>.yaml` under `checks` — so you can copy-paste from one to the other.
+Each warning type is the bucket key under `by_type` in `warnings.json` and matches the corresponding toggle name in `rules/<type>.yaml` under `checks` — so you can copy-paste from one to the other.
 
 ### Matching rules
 

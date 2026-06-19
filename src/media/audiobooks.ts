@@ -383,6 +383,8 @@ export function createAudiobooksModule(
       for (const book of records.values()) {
         const cats = distinctCategories(book.versions)
         if (cats.length <= 1) continue
+        const catSet = new Set(cats)
+        if (isAcceptableComboSet(catSet, rules.acceptable_book_combos)) continue
         const ordered = categoryOrder.filter(c => cats.includes(c))
         // Path uses Author/Book Title for parity with music's Artist/Album
         // duplicate-album path. authors[] is comma-separated for multi-author
@@ -395,4 +397,9 @@ export function createAudiobooksModule(
       }
     },
   }
+}
+
+/** Return true if `set` matches one of the acceptable category combos. */
+function isAcceptableComboSet(set: Set<string>, combos: readonly string[][]): boolean {
+  return combos.some(combo => combo.length === set.size && combo.every(c => set.has(c)))
 }

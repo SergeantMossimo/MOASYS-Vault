@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">95.5% </span>
+                <span class="strong">95.6% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>85/89</span>
+                <span class='fraction'>87/91</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">84.28% </span>
+                <span class="strong">82.43% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>59/70</span>
+                <span class='fraction'>61/74</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">97.43% </span>
+                <span class="strong">97.5% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>76/78</span>
+                <span class='fraction'>78/80</span>
             </div>
         
             
@@ -321,7 +321,17 @@
 <a name='L256'></a><a href='#L256'>256</a>
 <a name='L257'></a><a href='#L257'>257</a>
 <a name='L258'></a><a href='#L258'>258</a>
-<a name='L259'></a><a href='#L259'>259</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L259'></a><a href='#L259'>259</a>
+<a name='L260'></a><a href='#L260'>260</a>
+<a name='L261'></a><a href='#L261'>261</a>
+<a name='L262'></a><a href='#L262'>262</a>
+<a name='L263'></a><a href='#L263'>263</a>
+<a name='L264'></a><a href='#L264'>264</a>
+<a name='L265'></a><a href='#L265'>265</a>
+<a name='L266'></a><a href='#L266'>266</a>
+<a name='L267'></a><a href='#L267'>267</a>
+<a name='L268'></a><a href='#L268'>268</a>
+<a name='L269'></a><a href='#L269'>269</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -531,12 +541,19 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">17x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">17x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">17x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">17x</span>
 <span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -546,6 +563,7 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -562,12 +580,14 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">17x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -788,14 +808,21 @@ export async function validateMovies(
       }
     }
 &nbsp;
-    // Emit warnings according to confidence
+    // Emit warnings according to confidence. Path is prefixed with the
+    // movie's first category so flat-library and quality-organized users
+    // both get a clickable, copy-pasteable folder path. "default" is the
+    // sentinel for an empty `categories` config — skip the prefix there.
     const movieLabel = movie.edition
       ? <span class="branch-0 cbranch-no" title="branch not covered" >`${movie.title} (${movie.year}) {edition-${movie.edition}}`</span>
       : `${movie.title} (${movie.year})`
+    const firstCategory = movie.versions[0]?.category
+    const moviePath =
+      firstCategory &amp;&amp; <span class="branch-1 cbranch-no" title="branch not covered" >firstCategory !== 'default' ? <span class="branch-0 cbranch-no" title="branch not covered" >`</span>${firstCategory}/${movieLabel}` : m</span>ovieLabel
 &nbsp;
     if (resolved.confidence === 'none' &amp;&amp; rules.checks.warn_tmdb_no_match) {
       warnings.add(
-        movieLabel,
+        'warn_tmdb_no_match',
+        moviePath,
         `TMDB found no match for '${movie.title}' (${movie.year}). Possible typo in title or year, or this movie isn't in TMDB.`
       )
     } else if (resolved.confidence === 'low' &amp;&amp; rules.checks.warn_tmdb_low_confidence) {
@@ -804,7 +831,8 @@ export async function validateMovies(
           ? ` Alternatives: ${entry.alternatives.map(a =&gt; `'${a.title}' (${a.year})`).join(', ')}.`
           : ''
       warnings.add(
-        movieLabel,
+        'warn_tmdb_low_confidence',
+        moviePath,
         `TMDB low-confidence match: best guess is '${entry.tmdb_title}' (${entry.tmdb_year}).${altText} Review and confirm.`
       )
     } else if (
@@ -813,7 +841,8 @@ export async function validateMovies(
       entry.tmdb_year !== movie.year
     ) {
       warnings.add(
-        movieLabel,
+        'warn_tmdb_year_mismatch',
+        moviePath,
         `TMDB year mismatch: folder says ${movie.year} but TMDB says '${entry.tmdb_title}' was released in ${entry.tmdb_year}. Verify which is correct.`
       )
     }
@@ -826,7 +855,8 @@ export async function validateMovies(
       entry.tmdb_title_filename_safe !== movie.title
     ) {
       warnings.add(
-        movieLabel,
+        'warn_tmdb_title_canonical',
+        moviePath,
         `TMDB canonical title differs: folder is '${movie.title}', TMDB filename-safe form is '${entry.tmdb_title_filename_safe}'. Consider renaming the folder to match.`
       )
     }
@@ -844,7 +874,7 @@ export async function validateMovies(
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-06-06T23:46:10.665Z
+                at 2026-06-18T20:37:48.209Z
             </div>
         <script src="../prettify.js"></script>
         <script>

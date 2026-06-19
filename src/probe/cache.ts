@@ -44,9 +44,10 @@ function makeKey(relativePath: string, mtime: number, size: number): string {
 /**
  * In-memory cache backed by a JSON file. Load at start, save at end.
  *
- * No auto-pruning of stale entries — if a file disappears from the library,
- * its cache entry is harmless and the next probe run won't touch it.
- * The cache will grow slowly over time but stays human-inspectable.
+ * Orphan cleanup is opt-in via `pruneOrphans()` — call it after the probe
+ * pass to drop entries whose underlying files no longer exist. Without
+ * pruning, orphan entries are harmless but accumulate over time as files
+ * are renamed or deleted from the library.
  */
 export class ProbeCache {
   private entries = new Map<string, CacheEntry>()
@@ -128,5 +129,28 @@ export class ProbeCache {
   /** Total entries currently in cache. Useful for run summaries. */
   size(): number {
     return this.entries.size
+  }
+
+  /**
+   * Drop entries whose underlying file no longer exists under `rootPath`.
+   * Returns the number of entries removed.
+   *
+   * Resolves each entry's stored relative path against `rootPath` and checks
+   * the filesystem. Existence-only — no mtime/size re-check, since changed
+   * files already invalidate via the cache key on lookup.
+   *
+   * Safe to call at the end of a scan: cleared entries weren't read this run
+   * (their files don't exist), so dropping them doesn't lose any work.
+   */
+  pruneOrphans(rootPath: string): number {
+    let removed = 0
+    for (const [key, entry] of this.entries) {
+      const absolutePath = path.join(rootPath, entry.path)
+      if (!fs.existsSync(absolutePath)) {
+        this.entries.delete(key)
+        removed++
+      }
+    }
+    return removed
   }
 }

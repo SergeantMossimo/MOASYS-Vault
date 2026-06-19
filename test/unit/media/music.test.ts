@@ -187,6 +187,46 @@ describe('music module — warnings', () => {
     ).toBe(true)
   })
 
+  it('warn_duplicate_album: silenced when category set is in acceptable_album_combos', () => {
+    const result = runMusicScan({
+      spec: {
+        Music: {
+          Artist: { Album: { '01 - Song.flac': '' } },
+        },
+        Soundtracks: {
+          Artist: { Album: { '01 - Song.flac': '' } },
+        },
+      },
+      rules: {
+        acceptable_album_combos: [['Music', 'Soundtracks']],
+      },
+    })
+    expect(
+      result.warnings.some(w => w.issue.match(/Duplicate album found in multiple categories/))
+    ).toBe(false)
+  })
+
+  it('warn_duplicate_album: fires when category set does not match any acceptable combo', () => {
+    const result = runMusicScan({
+      spec: {
+        Music: {
+          Artist: { Album: { '01 - Song.flac': '' } },
+        },
+        Soundtracks: {
+          Artist: { Album: { '01 - Song.flac': '' } },
+        },
+      },
+      rules: {
+        // Whitelists a different combo — the actual set {Music, Soundtracks}
+        // still fires.
+        acceptable_album_combos: [['Music', 'Other']],
+      },
+    })
+    expect(
+      result.warnings.some(w => w.issue.match(/Duplicate album found in multiple categories/))
+    ).toBe(true)
+  })
+
   it('warn_loose_files: tracks directly in artist folder (no album wrapper)', () => {
     const result = runMusicScan({
       spec: {
