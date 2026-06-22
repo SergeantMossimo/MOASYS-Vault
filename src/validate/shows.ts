@@ -143,8 +143,12 @@ function compareSeasons(
  *   - Single-episode files: compare local vs TMDB[episode_start] with strict
  *     filename-safe normalization.
  *   - Multi-episode files (S01E01-E02): only checked when the
- *     `warn_tmdb_episode_name_multi_episode` toggle is true; the local title
- *     is accepted if it equals ANY of the constituent episodes' TMDB titles.
+ *     `warn_tmdb_episode_name_multi_episode` toggle is true. Accepted if the
+ *     local title equals ANY single constituent TMDB title (filename names
+ *     just the primary episode) OR if every constituent title appears as a
+ *     substring of the local title in episode order (filename joins all
+ *     parts — joiner doesn't matter, since the filesystem-safe `/` is illegal
+ *     and users substitute spaces / `&` / `,` / etc.).
  *
  * Returns a list of mismatched episodes for the caller to emit warnings on.
  */
@@ -181,11 +185,14 @@ function findEpisodeTitleMismatches(
     // already surfaces structural issues.
     if (tmdbTitles.length === 0) continue
 
-    const localSafe = stripFilenameIllegalChars(ep.title).trim().toLowerCase()
-    const matches = tmdbTitles.some(
-      t => stripFilenameIllegalChars(t).trim().toLowerCase() === localSafe
-    )
-    if (!matches) {
+    const normalize = (s: string) => stripFilenameIllegalChars(s).trim().toLowerCase()
+    const localSafe = normalize(ep.title)
+    const tmdbSafe = tmdbTitles.map(normalize)
+
+    const matchesSingle = tmdbSafe.some(t => t === localSafe)
+    const matchesCombined =
+      isMultiEpisode && tmdbSafe.length > 1 && containsAllInOrder(localSafe, tmdbSafe)
+    if (!matchesSingle && !matchesCombined) {
       mismatches.push({
         episode_start: ep.episode_start,
         episode_end: ep.episode_end,
@@ -196,6 +203,23 @@ function findEpisodeTitleMismatches(
   }
 
   return mismatches
+}
+
+/**
+ * True if every part appears as a substring of `haystack`, in order, with no
+ * overlap. Used to accept multi-episode filenames that concatenate every
+ * constituent TMDB title with an arbitrary joiner (Windows forbids `/` so
+ * users substitute spaces, `&`, `,`, etc.).
+ */
+function containsAllInOrder(haystack: string, parts: string[]): boolean {
+  let pos = 0
+  for (const p of parts) {
+    if (p.length === 0) return false
+    const idx = haystack.indexOf(p, pos)
+    if (idx === -1) return false
+    pos = idx + p.length
+  }
+  return true
 }
 
 export async function validateShows(
@@ -337,7 +361,7 @@ export async function validateShows(
             seasonCategory && seasonCategory !== 'default' ? `${seasonCategory}/${label}` : label
           warnings.add(
             'warn_tmdb_episode_count',
-            `${seasonShowPath} — Season ${season.season}`,
+            `${seasonShowPath}/Season ${season.season}`,
             `Season ${season.season} has ${season.local_episode_count} of ${season.tmdb_episode_count} episodes per TMDB (${season.missing} missing). Identify gaps via shows.json or the scan's potential-missing-episodes warning.`
           )
         }
@@ -399,7 +423,7 @@ export async function validateShows(
             m.tmdb.length === 1 ? `'${m.tmdb[0]}'` : m.tmdb.map(t => `'${t}'`).join(' / ')
           warnings.add(
             'warn_tmdb_episode_name_mismatch',
-            `${seasonShowPath} — ${epLabel}`,
+            `${seasonShowPath}/${epLabel}`,
             `Episode title '${m.local}' differs from TMDB's ${tmdbExpected}. Verify which is correct.`
           )
         }

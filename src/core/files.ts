@@ -28,6 +28,23 @@ export function stripFilenameIllegalChars(s: string): string {
   return s.replace(/[<>:"|?*\\/]/g, '')
 }
 
+/**
+ * Return the form of a string that could actually exist on disk as a folder
+ * name on Windows: illegal characters removed, leading/trailing whitespace
+ * trimmed, and trailing periods stripped (Windows silently drops both).
+ *
+ * Used when comparing an ID3 tag against a folder name — without this,
+ * tags like `P.O.D.` or `Billboard Hits U.S.A.` false-fire warn_folder_tag_mismatch
+ * because the on-disk folder can never preserve the trailing period.
+ */
+export function toComparableFolderName(s: string): string {
+  let out = stripFilenameIllegalChars(s).trim()
+  while (out.length > 0 && (out.endsWith('.') || out.endsWith(' '))) {
+    out = out.slice(0, -1)
+  }
+  return out
+}
+
 /** True if the filename's extension is in the provided list (case-insensitive). */
 export function hasExtension(filename: string, extensions: string[]): boolean {
   const ext = path.extname(filename).toLowerCase()

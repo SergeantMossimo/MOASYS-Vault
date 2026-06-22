@@ -58,6 +58,7 @@ audio_extensions:
 sidecar_extensions:
   - .jpg
   - .pdf
+  - .txt
 
 # ── Acceptable codec combos ─────────────────────────────────────────────────
 # Codec mixes that are intentional and should NOT fire warn_quality_inconsistent.

@@ -16,7 +16,7 @@ import { hasExtension, isPrimary } from '../core/files'
 import { MusicRules } from '../core/rules/music'
 import { compilePattern, resolveCategories } from '../core/rules/helpers'
 
-import { stripFilenameIllegalChars } from '../core/files'
+import { toComparableFolderName } from '../core/files'
 
 import { ProbeCache } from './cache'
 import { ProbeTask, ProbedFile, probeBatch } from './helpers'
@@ -373,19 +373,19 @@ export async function probeMusic(
  * Comparison is case-insensitive and trim-tolerant.
  */
 function tagMatchesFolder(tagValue: string, folderName: string): boolean {
-  const tagSafe = stripFilenameIllegalChars(tagValue).trim().toLowerCase()
+  const tagSafe = toComparableFolderName(tagValue).toLowerCase()
   const folder = folderName.trim().toLowerCase()
   return tagSafe === folder
 }
 
 /**
  * Pick the form of a tag value the user could actually use as a folder name.
- * For tags with no illegal characters this is just the tag itself; for tags
- * like `AC/DC` it's the stripped `ACDC` form so the recommended-fix message
- * doesn't tell the user to do something impossible.
+ * Strips Windows-illegal characters (`AC/DC` → `ACDC`) and Windows-stripped
+ * trailing positions (`P.O.D.` → `P.O.D`) so the recommended-fix message
+ * never tells the user to do something the OS won't let them do.
  */
 function suggestedFolderName(tagValue: string): string {
-  const safe = stripFilenameIllegalChars(tagValue)
+  const safe = toComparableFolderName(tagValue)
   return safe === tagValue ? tagValue : safe
 }
 

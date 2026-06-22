@@ -186,6 +186,7 @@ A few gotchas worth knowing:
 
 - The scanner doesn't recurse into subfolders inside an album — multi-disc albums must use the flat disc-prefixed convention (`101`, `201`, etc.)
 - The disc number prefix is greedy: a file named `100 - Track` parses as disc 1, track 00 (because the multi-disc pattern is tried first)
+- `warn_folder_tag_mismatch` accounts for what Windows allows in a folder name: Windows-illegal characters (`< > : " | ? * \ /`) and trailing periods/spaces are dropped from the tag before comparison. So an `AlbumArtist` tag of `P.O.D.` matches the folder `P.O.D`, `AC/DC` matches `ACDC`, and `Billboard Hits U.S.A.` matches `Billboard Hits U.S.A` — no warning fires for those
 
 ---
 

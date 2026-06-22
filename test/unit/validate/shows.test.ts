@@ -388,6 +388,48 @@ describe('validateShows — warnings', () => {
     expect(warnings.all().some(w => w.issue.match(/10 of 13 episodes/i))).toBe(true)
   })
 
+  it('uses a /-separated path so ignore-list prefix matching works across both checks', async () => {
+    // Regression guard: validation paths must use `/` between show and
+    // season/episode (not ` — `) so `ignored/shows.yaml` entries like
+    // `HD/Some Show (2020)` silence the downstream warnings via prefix match.
+    const client = mockClient({
+      searchResults: [
+        {
+          id: 100,
+          name: 'Show',
+          original_name: 'Show',
+          first_air_date: '2020-01-01',
+          popularity: 50,
+        },
+      ],
+      details: {
+        100: {
+          id: 100,
+          name: 'Show',
+          original_name: 'Show',
+          first_air_date: '2020-01-01',
+          number_of_seasons: 1,
+          number_of_episodes: 13,
+          seasons: [{ season_number: 1, episode_count: 13, name: 'Season 1' }],
+        },
+      },
+    })
+
+    await validateShows(
+      [show('Show', 2020, [{ season: '1', episode_count: 10, versions: [], episodes: [] }])],
+      defaultShowsRules,
+      client,
+      memoryCache(),
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    const w = warnings.all().find(x => x.type === 'warn_tmdb_episode_count')
+    expect(w?.path).toBe('Show (2020)/Season 1')
+    expect(w?.path).not.toContain(' — ')
+  })
+
   it('skips episode-count warning for Specials season', async () => {
     const client = mockClient({
       searchResults: [
@@ -744,6 +786,158 @@ describe('validateShows — TMDB episode-name validation', () => {
     const epMismatches = warnings.all().filter(w => w.type === 'warn_tmdb_episode_name_mismatch')
     expect(epMismatches).toHaveLength(1)
     expect(epMismatches[0]?.path).toMatch(/S01E01-E02/)
+  })
+
+  it('accepts a multi-episode file whose combined title contains every TMDB title in order', async () => {
+    // User can't use `/` in filenames (Windows path separator), so they
+    // join the two episode titles with whatever they like — here two spaces,
+    // as if `/` was simply removed. Should NOT flag as a mismatch.
+    const client = mockClient({
+      searchResults: baseSearch,
+      details: { 100: baseDetails },
+      seasons: {
+        '100:1': {
+          season_number: 1,
+          episodes: [
+            { episode_number: 1, name: 'Made in China (1)' },
+            { episode_number: 2, name: 'Last Call (2)' },
+          ],
+        },
+      },
+    })
+
+    await validateShows(
+      [
+        show('Show', 2020, [
+          {
+            season: '1',
+            episode_count: 2,
+            versions: [{ category: 'default', quality: null }],
+            episodes: [
+              {
+                episode_start: 1,
+                episode_end: 2,
+                title: 'Made in China (1)  Last Call (2)',
+              },
+            ],
+          },
+        ]),
+      ],
+      {
+        ...defaultShowsRules,
+        checks: {
+          ...defaultShowsRules.checks,
+          warn_tmdb_episode_name_multi_episode: true,
+        },
+      },
+      client,
+      memoryCache(),
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    expect(warnings.all().filter(w => w.type === 'warn_tmdb_episode_name_mismatch')).toEqual([])
+  })
+
+  it('accepts a multi-episode combined title regardless of joiner (& comma ampersand etc.)', async () => {
+    const client = mockClient({
+      searchResults: baseSearch,
+      details: { 100: baseDetails },
+      seasons: {
+        '100:1': {
+          season_number: 1,
+          episodes: [
+            { episode_number: 1, name: 'The One with Two Parts (1)' },
+            { episode_number: 2, name: 'The One with Two Parts (2)' },
+          ],
+        },
+      },
+    })
+
+    await validateShows(
+      [
+        show('Show', 2020, [
+          {
+            season: '1',
+            episode_count: 2,
+            versions: [{ category: 'default', quality: null }],
+            episodes: [
+              {
+                episode_start: 1,
+                episode_end: 2,
+                title: 'The One with Two Parts (1) & The One with Two Parts (2)',
+              },
+            ],
+          },
+        ]),
+      ],
+      {
+        ...defaultShowsRules,
+        checks: {
+          ...defaultShowsRules.checks,
+          warn_tmdb_episode_name_multi_episode: true,
+        },
+      },
+      client,
+      memoryCache(),
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    expect(warnings.all().filter(w => w.type === 'warn_tmdb_episode_name_mismatch')).toEqual([])
+  })
+
+  it('still flags a multi-episode combined title that has the parts in the wrong order', async () => {
+    // Order matters — if the user wrote the titles backwards, that's a real
+    // anomaly worth surfacing.
+    const client = mockClient({
+      searchResults: baseSearch,
+      details: { 100: baseDetails },
+      seasons: {
+        '100:1': {
+          season_number: 1,
+          episodes: [
+            { episode_number: 1, name: 'Alpha' },
+            { episode_number: 2, name: 'Bravo' },
+          ],
+        },
+      },
+    })
+
+    await validateShows(
+      [
+        show('Show', 2020, [
+          {
+            season: '1',
+            episode_count: 2,
+            versions: [{ category: 'default', quality: null }],
+            episodes: [
+              {
+                episode_start: 1,
+                episode_end: 2,
+                title: 'Bravo and Alpha', // reversed
+              },
+            ],
+          },
+        ]),
+      ],
+      {
+        ...defaultShowsRules,
+        checks: {
+          ...defaultShowsRules.checks,
+          warn_tmdb_episode_name_multi_episode: true,
+        },
+      },
+      client,
+      memoryCache(),
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    expect(warnings.all().filter(w => w.type === 'warn_tmdb_episode_name_mismatch')).toHaveLength(1)
   })
 
   it('skips episodes whose filename omits the title', async () => {
