@@ -7,6 +7,8 @@ import {
   formatPrimaryExts,
   findSuspiciousPathChars,
   findUnexpectedEntries,
+  stripFilenameIllegalChars,
+  toComparableFolderName,
 } from '../../../src/core/files'
 
 /**
@@ -77,6 +79,53 @@ describe('formatPrimaryExts', () => {
 
   it('uppercases extensions', () => {
     expect(formatPrimaryExts(['.flac', '.mp3'])).toBe('Non-.FLAC/.MP3')
+  })
+})
+
+describe('stripFilenameIllegalChars', () => {
+  it('removes Windows-illegal characters', () => {
+    expect(stripFilenameIllegalChars('AC/DC')).toBe('ACDC')
+    expect(stripFilenameIllegalChars('3:10 to Yuma')).toBe('310 to Yuma')
+    expect(stripFilenameIllegalChars('Why?')).toBe('Why')
+  })
+
+  it('leaves clean strings alone', () => {
+    expect(stripFilenameIllegalChars('Pink Floyd')).toBe('Pink Floyd')
+  })
+
+  it('does NOT strip trailing periods or spaces', () => {
+    expect(stripFilenameIllegalChars('P.O.D.')).toBe('P.O.D.')
+    expect(stripFilenameIllegalChars('Album ')).toBe('Album ')
+  })
+})
+
+describe('toComparableFolderName', () => {
+  it('strips illegal characters', () => {
+    expect(toComparableFolderName('AC/DC')).toBe('ACDC')
+  })
+
+  it('strips trailing periods (Windows-incompatible)', () => {
+    expect(toComparableFolderName('P.O.D.')).toBe('P.O.D')
+    expect(toComparableFolderName('Billboard Hits U.S.A.')).toBe('Billboard Hits U.S.A')
+  })
+
+  it('strips multiple trailing periods and spaces in any order', () => {
+    expect(toComparableFolderName('Album . .')).toBe('Album')
+    expect(toComparableFolderName('Album...')).toBe('Album')
+  })
+
+  it('trims leading and trailing whitespace', () => {
+    expect(toComparableFolderName('  Pink Floyd  ')).toBe('Pink Floyd')
+  })
+
+  it('preserves periods in the middle of a name', () => {
+    expect(toComparableFolderName('P.O.D')).toBe('P.O.D')
+    expect(toComparableFolderName('U.S.A. Patriot')).toBe('U.S.A. Patriot')
+  })
+
+  it('returns empty for a string of only stripped characters', () => {
+    expect(toComparableFolderName('...')).toBe('')
+    expect(toComparableFolderName('   ')).toBe('')
   })
 })
 

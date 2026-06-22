@@ -421,6 +421,57 @@ describe('probeMusic', () => {
     expect(warnings.all().some(w => w.issue.match(/Folder\/tag mismatch/i))).toBe(false)
   })
 
+  it('does NOT fire folder/tag mismatch when tag has a trailing period (Windows strips it)', async () => {
+    // ID3 tag "P.O.D." cannot exist as a folder on Windows — the OS silently
+    // drops the trailing period, so the folder is "P.O.D". Both forms should
+    // compare equal so we don't false-fire on every album by this artist.
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          'P.O.D': {
+            'The Fundamental Elements of Southtown': { '01 - One.flac': '' },
+          },
+        },
+      },
+      probes: {
+        'Music/P.O.D/The Fundamental Elements of Southtown/01 - One.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({
+            album_artist: 'P.O.D.',
+            album: 'The Fundamental Elements of Southtown',
+          }),
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/Folder\/tag mismatch/i))).toBe(false)
+  })
+
+  it('does NOT fire folder/tag mismatch when album tag has a trailing period', async () => {
+    const { rules, root, cache, warnings } = setup({
+      spec: {
+        Music: {
+          'The Monkees': {
+            'Billboard Hits U.S.A': { '01 - One.flac': '' },
+          },
+        },
+      },
+      probes: {
+        'Music/The Monkees/Billboard Hits U.S.A/01 - One.flac': fakeProbe({
+          audio: flacAudio(),
+          tags: tags({
+            album_artist: 'The Monkees',
+            album: 'Billboard Hits U.S.A.',
+          }),
+        }),
+      },
+    })
+
+    await probeMusic({ root_path: root }, rules, cache, warnings)
+    expect(warnings.all().some(w => w.issue.match(/Folder\/tag mismatch/i))).toBe(false)
+  })
+
   it('suggests the filename-safe form in the recommended fix when tag has illegal chars', async () => {
     // Tag "Friends:" (colon is illegal) → suggested folder is "Friends" not "Friends:".
     const { rules, root, cache, warnings } = setup({
