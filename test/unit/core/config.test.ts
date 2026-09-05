@@ -3,18 +3,44 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-import { AppConfigSchema, loadConfig } from '../../../src/core/config'
+import { AppConfigSchema, driveSlug, loadConfig } from '../../../src/core/config'
 
 describe('AppConfigSchema', () => {
   const validConfig = {
-    movies: { root_path: 'M:\\Movies' },
-    shows: { root_path: 'M:\\Shows' },
-    music: { root_path: 'M:\\Audio' },
-    audiobooks: { root_path: 'M:\\Audiobooks' },
+    movies: [{ root_path: 'M:\\Movies', name: 'Server' }],
+    shows: [{ root_path: 'M:\\Shows', name: 'Server' }],
+    music: [{ root_path: 'M:\\Audio', name: 'Server' }],
+    audiobooks: [{ root_path: 'M:\\Audiobooks', name: 'Server' }],
   }
 
   it('accepts the minimal valid shape', () => {
     expect(AppConfigSchema.safeParse(validConfig).success).toBe(true)
+  })
+
+  it('accepts several named roots for one media type', () => {
+    const multi = {
+      ...validConfig,
+      movies: [
+        { root_path: 'M:\\Movies', name: 'Server' },
+        { root_path: 'D:\\Movies', name: 'External' },
+      ],
+    }
+    expect(AppConfigSchema.safeParse(multi).success).toBe(true)
+  })
+
+  it('preserves root order (the first entry is the default)', () => {
+    const multi = {
+      ...validConfig,
+      movies: [
+        { root_path: 'D:\\Movies', name: 'External' },
+        { root_path: 'M:\\Movies', name: 'Server' },
+      ],
+    }
+    const result = AppConfigSchema.safeParse(multi)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.movies.map(r => r.name)).toEqual(['External', 'Server'])
+    }
   })
 
   it('accepts an optional _notes object of string values', () => {
@@ -50,8 +76,17 @@ describe('AppConfigSchema', () => {
     expect(AppConfigSchema.safeParse(rest).success).toBe(false)
   })
 
+  it('rejects an empty root list', () => {
+    const bad = { ...validConfig, movies: [] }
+    const result = AppConfigSchema.safeParse(bad)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toMatch(/at least one root/i)
+    }
+  })
+
   it('rejects when root_path is an empty string', () => {
-    const bad = { ...validConfig, movies: { root_path: '' } }
+    const bad = { ...validConfig, movies: [{ root_path: '', name: 'Server' }] }
     const result = AppConfigSchema.safeParse(bad)
     expect(result.success).toBe(false)
     if (!result.success) {
@@ -60,12 +95,80 @@ describe('AppConfigSchema', () => {
   })
 
   it('rejects when root_path is the wrong type', () => {
-    const bad = { ...validConfig, movies: { root_path: 42 } }
+    const bad = { ...validConfig, movies: [{ root_path: 42, name: 'Server' }] }
     expect(AppConfigSchema.safeParse(bad).success).toBe(false)
   })
 
-  it('rejects when a media type is not an object', () => {
-    const bad = { ...validConfig, movies: 'not-an-object' }
+  it('rejects a root with no name', () => {
+    const bad = { ...validConfig, movies: [{ root_path: 'M:\\Movies' }] }
+    expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects a name containing path separators', () => {
+    const bad = { ...validConfig, movies: [{ root_path: 'M:\\Movies', name: 'a/b' }] }
+    const result = AppConfigSchema.safeParse(bad)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toMatch(/folder name/i)
+    }
+  })
+
+  it('rejects a name containing a colon or backslash', () => {
+    for (const name of ['C:', 'a\\b', 'a/b']) {
+      const bad = { ...validConfig, movies: [{ root_path: 'M:\\Movies', name }] }
+      expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+    }
+  })
+
+  it("rejects '.' and '..' as names (they would relocate the output folder)", () => {
+    for (const name of ['.', '..']) {
+      const bad = { ...validConfig, movies: [{ root_path: 'M:\\Movies', name }] }
+      const result = AppConfigSchema.safeParse(bad)
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error.issues[0]?.message).toMatch(/cannot be/i)
+      }
+    }
+  })
+
+  it('still allows dots inside a name', () => {
+    const ok = { ...validConfig, movies: [{ root_path: 'M:\\Movies', name: 'NAS.2' }] }
+    expect(AppConfigSchema.safeParse(ok).success).toBe(true)
+  })
+
+  it('rejects duplicate names within one media type', () => {
+    const bad = {
+      ...validConfig,
+      movies: [
+        { root_path: 'M:\\Movies', name: 'Server' },
+        { root_path: 'D:\\Movies', name: 'Server' },
+      ],
+    }
+    const result = AppConfigSchema.safeParse(bad)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toMatch(/duplicate name/i)
+    }
+  })
+
+  it('treats names differing only by case as duplicates (folders collide on Windows)', () => {
+    const bad = {
+      ...validConfig,
+      movies: [
+        { root_path: 'M:\\Movies', name: 'Server' },
+        { root_path: 'D:\\Movies', name: 'server' },
+      ],
+    }
+    expect(AppConfigSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('allows the same name across different media types', () => {
+    // "Server" holding both movies and music is the normal case.
+    expect(AppConfigSchema.safeParse(validConfig).success).toBe(true)
+  })
+
+  it('rejects when a media type is not an array', () => {
+    const bad = { ...validConfig, movies: { root_path: 'M:\\Movies', name: 'Server' } }
     expect(AppConfigSchema.safeParse(bad).success).toBe(false)
   })
 
@@ -75,10 +178,24 @@ describe('AppConfigSchema', () => {
   })
 })
 
+describe('driveSlug', () => {
+  it('lowercases the configured name', () => {
+    expect(driveSlug('Server')).toBe('server')
+    expect(driveSlug('External')).toBe('external')
+  })
+
+  it('is idempotent', () => {
+    expect(driveSlug(driveSlug('Server'))).toBe('server')
+  })
+})
+
 describe('loadConfig', () => {
   let tmpDir: string
   let exitSpy: ReturnType<typeof vi.spyOn>
   let errorSpy: ReturnType<typeof vi.spyOn>
+
+  const writeConfig = (value: unknown) =>
+    fs.writeFileSync(path.join(tmpDir, 'config.json'), JSON.stringify(value), 'utf-8')
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moasys-config-'))
@@ -95,17 +212,21 @@ describe('loadConfig', () => {
   })
 
   it('loads and validates a valid config.json', () => {
-    const config = {
-      movies: { root_path: 'M:\\Movies' },
-      shows: { root_path: 'M:\\Shows' },
-      music: { root_path: 'M:\\Audio' },
-      audiobooks: { root_path: 'M:\\Audiobooks' },
-    }
-    fs.writeFileSync(path.join(tmpDir, 'config.json'), JSON.stringify(config), 'utf-8')
+    writeConfig({
+      movies: [
+        { root_path: 'M:\\Movies', name: 'Server' },
+        { root_path: 'D:\\Movies', name: 'External' },
+      ],
+      shows: [{ root_path: 'M:\\Shows', name: 'Server' }],
+      music: [{ root_path: 'M:\\Audio', name: 'Server' }],
+      audiobooks: [{ root_path: 'M:\\Audiobooks', name: 'Server' }],
+    })
 
     const loaded = loadConfig(tmpDir)
-    expect(loaded.movies.root_path).toBe('M:\\Movies')
-    expect(loaded.audiobooks.root_path).toBe('M:\\Audiobooks')
+    expect(loaded.movies).toHaveLength(2)
+    expect(loaded.movies[0]?.root_path).toBe('M:\\Movies')
+    expect(loaded.movies[1]?.name).toBe('External')
+    expect(loaded.audiobooks[0]?.root_path).toBe('M:\\Audiobooks')
   })
 
   it('exits with a helpful message when config.json is missing', () => {
@@ -119,22 +240,28 @@ describe('loadConfig', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/Error parsing config\.json/))
   })
 
+  it('exits with a migration message on the old single-root shape', () => {
+    writeConfig({
+      movies: { root_path: 'M:\\Movies' },
+      shows: { root_path: 'M:\\Shows' },
+      music: { root_path: 'M:\\Audio' },
+      audiobooks: { root_path: 'M:\\Audiobooks' },
+    })
+    expect(() => loadConfig(tmpDir)).toThrow('process.exit called')
+    const allErrorOutput = errorSpy.mock.calls.flat().join('\n')
+    expect(allErrorOutput).toMatch(/old single-root format/i)
+    expect(allErrorOutput).toMatch(/LIST of named roots/i)
+    expect(allErrorOutput).toMatch(/movies, shows, music, audiobooks/)
+  })
+
   it('exits when config.json passes JSON.parse but fails schema validation', () => {
-    fs.writeFileSync(
-      path.join(tmpDir, 'config.json'),
-      JSON.stringify({ movies: { root_path: '' } }),
-      'utf-8'
-    )
+    writeConfig({ movies: [{ root_path: '', name: 'Server' }] })
     expect(() => loadConfig(tmpDir)).toThrow('process.exit called')
     expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/failed schema validation/))
   })
 
   it('lists each validation issue path on failure', () => {
-    fs.writeFileSync(
-      path.join(tmpDir, 'config.json'),
-      JSON.stringify({ movies: { root_path: '' } }),
-      'utf-8'
-    )
+    writeConfig({ movies: [{ root_path: '', name: 'Server' }] })
     expect(() => loadConfig(tmpDir)).toThrow('process.exit called')
     // Each issue prints a line; one of them should reference movies.root_path or shows etc.
     const allErrorOutput = errorSpy.mock.calls.flat().join('\n')
@@ -142,14 +269,13 @@ describe('loadConfig', () => {
   })
 
   it('returns the original _notes when present (passes through validation)', () => {
-    const config = {
+    writeConfig({
       _notes: { hint: 'whatever' },
-      movies: { root_path: 'M:\\Movies' },
-      shows: { root_path: 'M:\\Shows' },
-      music: { root_path: 'M:\\Audio' },
-      audiobooks: { root_path: 'M:\\Audiobooks' },
-    }
-    fs.writeFileSync(path.join(tmpDir, 'config.json'), JSON.stringify(config), 'utf-8')
+      movies: [{ root_path: 'M:\\Movies', name: 'Server' }],
+      shows: [{ root_path: 'M:\\Shows', name: 'Server' }],
+      music: [{ root_path: 'M:\\Audio', name: 'Server' }],
+      audiobooks: [{ root_path: 'M:\\Audiobooks', name: 'Server' }],
+    })
     const loaded = loadConfig(tmpDir)
     expect(loaded._notes).toEqual({ hint: 'whatever' })
   })

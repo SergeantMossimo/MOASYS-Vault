@@ -38,6 +38,47 @@ export function normalizeTitle(s: string): string {
   return stripFilenameIllegalChars(s).toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * Looser normalization used as a SECOND comparison tier, never on its own.
+ * Where `normalizeTitle` deletes filename-illegal characters, this one turns
+ * them into a separator — because users don't only delete those characters,
+ * they substitute for them. `Ghostbusters: Afterlife` can't exist on disk, so
+ * the folder becomes `Ghostbusters - Afterlife`, and the strict tier never
+ * sees those as equal.
+ *
+ *   1. Lowercase.
+ *   2. Filename-illegal characters → a space (NOT deleted).
+ *   3. `&` → `and` ("Pain & Gain" vs a folder named "Pain And Gain").
+ *   4. " - " → a space — the standard stand-in for a subtitle colon.
+ *   5. Drop incidental punctuation ("Good Morning, Vietnam").
+ *   6. Collapse whitespace, trim.
+ *
+ * Step 4 requires whitespace on both sides, so hyphenated words survive:
+ * `Spider-Man` stays `spider-man`, only ` - ` between words collapses. And it
+ * must run before the whitespace collapse in step 6 or it won't see its own
+ * separators.
+ *
+ * Both tiers are needed — neither subsumes the other:
+ *   - `Face/Off` vs a folder named `FaceOff` — the STRICT tier matches these
+ *     (both become `faceoff`); loose does not (`face off` vs `faceoff`).
+ *   - `Ghostbusters: Afterlife` vs `Ghostbusters - Afterlife` — LOOSE matches;
+ *     strict does not.
+ *
+ * This deliberately does NOT fold diacritics or apostrophes. Those are legal
+ * in filenames, so a difference there is a real divergence worth surfacing —
+ * same reasoning as the strict tier's docstring above.
+ */
+export function normalizeTitleLoose(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[<>:"|?*\\/]/g, ' ')
+    .replace(/&/g, ' and ')
+    .replace(/\s-\s/g, ' ')
+    .replace(/[,.!]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 // ─────────────────────────────────────────────
 // Date parsing
 // ─────────────────────────────────────────────

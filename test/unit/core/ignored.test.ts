@@ -147,7 +147,7 @@ describe('loadIgnoredPaths', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moasys-ignored-'))
-    fs.mkdirSync(path.join(tmpDir, 'ignored'))
+    fs.mkdirSync(path.join(tmpDir, 'ignored', 'server'), { recursive: true })
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number) => {
       throw new Error('process.exit called')
     }) as never)
@@ -160,17 +160,24 @@ describe('loadIgnoredPaths', () => {
     errorSpy.mockRestore()
   })
 
-  function writeYaml(name: string, contents: string): void {
-    fs.writeFileSync(path.join(tmpDir, 'ignored', name), contents, 'utf-8')
+  /** Write `ignored/<drive>/<name>`, creating the drive folder if needed. */
+  function writeYaml(name: string, contents: string, drive = 'server'): void {
+    const dir = path.join(tmpDir, 'ignored', drive)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, name), contents, 'utf-8')
   }
 
   it('returns [] when the file does not exist', () => {
-    expect(loadIgnoredPaths(tmpDir, 'shows')).toEqual([])
+    expect(loadIgnoredPaths(tmpDir, 'server', 'shows')).toEqual([])
+  })
+
+  it('returns [] when the drive folder does not exist at all', () => {
+    expect(loadIgnoredPaths(tmpDir, 'external', 'shows')).toEqual([])
   })
 
   it('normalizes string entries to {path, types: null}', () => {
     writeYaml('shows.yaml', '- HD/Show A\n- HD/Show B\n')
-    expect(loadIgnoredPaths(tmpDir, 'shows')).toEqual([
+    expect(loadIgnoredPaths(tmpDir, 'server', 'shows')).toEqual([
       { path: 'HD/Show A', types: null },
       { path: 'HD/Show B', types: null },
     ])
@@ -181,14 +188,14 @@ describe('loadIgnoredPaths', () => {
       'shows.yaml',
       '- path: HD/Show A\n  types:\n    - warn_episode_gaps\n    - warn_tmdb_episode_count\n'
     )
-    expect(loadIgnoredPaths(tmpDir, 'shows')).toEqual([
+    expect(loadIgnoredPaths(tmpDir, 'server', 'shows')).toEqual([
       { path: 'HD/Show A', types: ['warn_episode_gaps', 'warn_tmdb_episode_count'] },
     ])
   })
 
   it('accepts a mix of string and object entries', () => {
     writeYaml('shows.yaml', '- HD/Show A\n- path: HD/Show B\n  types:\n    - warn_episode_gaps\n')
-    expect(loadIgnoredPaths(tmpDir, 'shows')).toEqual([
+    expect(loadIgnoredPaths(tmpDir, 'server', 'shows')).toEqual([
       { path: 'HD/Show A', types: null },
       { path: 'HD/Show B', types: ['warn_episode_gaps'] },
     ])
@@ -196,46 +203,68 @@ describe('loadIgnoredPaths', () => {
 
   it('returns [] for a comments-only YAML', () => {
     writeYaml('shows.yaml', '# just a comment\n# nothing else\n')
-    expect(loadIgnoredPaths(tmpDir, 'shows')).toEqual([])
+    expect(loadIgnoredPaths(tmpDir, 'server', 'shows')).toEqual([])
   })
 
   it('exits when the YAML is malformed', () => {
     writeYaml('shows.yaml', '- [unterminated')
-    expect(() => loadIgnoredPaths(tmpDir, 'shows')).toThrow('process.exit called')
+    expect(() => loadIgnoredPaths(tmpDir, 'server', 'shows')).toThrow('process.exit called')
     expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/Error parsing/))
   })
 
   it('exits when the YAML is not a list', () => {
     writeYaml('shows.yaml', 'not_a_list: true\n')
-    expect(() => loadIgnoredPaths(tmpDir, 'shows')).toThrow('process.exit called')
+    expect(() => loadIgnoredPaths(tmpDir, 'server', 'shows')).toThrow('process.exit called')
     expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/must be a list/))
   })
 
   it('exits when a list entry is a number', () => {
     writeYaml('shows.yaml', '- HD/Show\n- 42\n')
-    expect(() => loadIgnoredPaths(tmpDir, 'shows')).toThrow('process.exit called')
+    expect(() => loadIgnoredPaths(tmpDir, 'server', 'shows')).toThrow('process.exit called')
   })
 
   it('exits when a list entry is an empty string', () => {
     writeYaml('shows.yaml', '- ""\n')
-    expect(() => loadIgnoredPaths(tmpDir, 'shows')).toThrow('process.exit called')
+    expect(() => loadIgnoredPaths(tmpDir, 'server', 'shows')).toThrow('process.exit called')
   })
 
   it('exits when an object entry has an empty types array', () => {
     writeYaml('shows.yaml', '- path: HD/Show\n  types: []\n')
-    expect(() => loadIgnoredPaths(tmpDir, 'shows')).toThrow('process.exit called')
+    expect(() => loadIgnoredPaths(tmpDir, 'server', 'shows')).toThrow('process.exit called')
   })
 
   it('loads per-type — each mediaType has its own file', () => {
     writeYaml('movies.yaml', '- UHD/Movie A\n')
     writeYaml('shows.yaml', '- HD/Show B\n')
-    expect(loadIgnoredPaths(tmpDir, 'movies')).toEqual([{ path: 'UHD/Movie A', types: null }])
-    expect(loadIgnoredPaths(tmpDir, 'shows')).toEqual([{ path: 'HD/Show B', types: null }])
-    expect(loadIgnoredPaths(tmpDir, 'music')).toEqual([])
+    expect(loadIgnoredPaths(tmpDir, 'server', 'movies')).toEqual([
+      { path: 'UHD/Movie A', types: null },
+    ])
+    expect(loadIgnoredPaths(tmpDir, 'server', 'shows')).toEqual([
+      { path: 'HD/Show B', types: null },
+    ])
+    expect(loadIgnoredPaths(tmpDir, 'server', 'music')).toEqual([])
+  })
+
+  it('loads per-drive — the same type on another drive is a separate file', () => {
+    writeYaml('movies.yaml', '- UHD/Only On Server\n', 'server')
+    writeYaml('movies.yaml', '- HD/Only On External\n', 'external')
+    expect(loadIgnoredPaths(tmpDir, 'server', 'movies')).toEqual([
+      { path: 'UHD/Only On Server', types: null },
+    ])
+    expect(loadIgnoredPaths(tmpDir, 'external', 'movies')).toEqual([
+      { path: 'HD/Only On External', types: null },
+    ])
+  })
+
+  it('does not fall back to a top-level ignored/<type>.yaml', () => {
+    // Pre-multi-drive layout. It must not leak into a drive-scoped load,
+    // otherwise a stale file would silently silence warnings on every drive.
+    fs.writeFileSync(path.join(tmpDir, 'ignored', 'shows.yaml'), '- HD/Legacy\n', 'utf-8')
+    expect(loadIgnoredPaths(tmpDir, 'server', 'shows')).toEqual([])
   })
 
   it('ignores the .yaml.example reference file', () => {
     writeYaml('shows.yaml.example', '- HD/Show From Example\n')
-    expect(loadIgnoredPaths(tmpDir, 'shows')).toEqual([])
+    expect(loadIgnoredPaths(tmpDir, 'server', 'shows')).toEqual([])
   })
 })

@@ -6,15 +6,15 @@ Context for Claude (and any other AI assistant) when working in this repo.
 
 **The scanner — and you while modifying it — must never modify, move, rename, or delete files under any user's `root_path`.** The user owns all changes to their media library.
 
-This rule applies to:
+This rule applies to every root listed in `config.json`. Each media type is an array of `{root_path, name}` entries — one per drive:
 
-- Movies (`config.movies.root_path`, default `M:\Movies`)
-- Shows (`config.shows.root_path`, default `M:\Shows`)
-- Music (`config.music.root_path`, default `M:\Audio`)
-- Audiobooks (`config.audiobooks.root_path`, default `M:\Audiobooks`)
+- Movies (`config.movies[]` — `M:\Movies` "Server", `D:\Movies` "External")
+- Shows (`config.shows[]` — `M:\Shows` "Server", `D:\Shows` "External")
+- Music (`config.music[]` — `M:\Audio` "Server")
+- Audiobooks (`config.audiobooks[]` — `M:\Audiobooks` "Server")
 - Any other path configured in `config.json`
 
-What the scanner does instead: **emits warnings** in `output/<type>/warnings.json` describing what it would suggest changing, with recommended fixes. The user reads the warnings and does the actual filesystem changes themselves.
+What the scanner does instead: **emits warnings** in `output/<drive>/<type>/warnings.json` describing what it would suggest changing, with recommended fixes. The user reads the warnings and does the actual filesystem changes themselves.
 
 What this means for you when working in this repo:
 
@@ -36,7 +36,9 @@ The user already has Plex; the point isn't to replicate Plex's functionality. It
 
 ## Architecture in one paragraph
 
-`config.json` carries per-machine "where" data (`root_path` per media type), validated by Zod in `src/core/config.ts`. `rules/<type>.yaml` carries "how" data (regex patterns, file extensions, naming conventions, per-warning toggles, the `categories` list of subfolders to walk). Each media module (`src/media/<type>.ts`) is a **factory** that takes the validated rules and returns a `MediaModule` object. The merged runner `src/scan.ts` per type: loads the probe cache, runs `probe<Type>` (ffprobe + ID3 for music), then calls `scan()` in `src/core/scanner.ts` which iterates `module.getCategories()` and calls `module.scanCategory()` for each — passing a `probeByPath` map so movies/shows derive each version's quality from ffprobe dimensions via `deriveQuality()`. One run produces `<type>.json` (catalog with `versions: [{category, quality}]`), `probe.json` (rich raw data), and `warnings.json` (everything from both passes). Validation is via Zod in `src/core/rules/`.
+`config.json` carries per-machine "where" data — an array of named roots (`{root_path, name}`) per media type, validated by Zod in `src/core/config.ts`. `rules/<type>.yaml` carries "how" data (regex patterns, file extensions, naming conventions, per-warning toggles, the `categories` list of subfolders to walk). Each media module (`src/media/<type>.ts`) is a **factory** that takes the validated rules and returns a `MediaModule` object. The merged runner `src/scan.ts` resolves the requested drive, then per type: loads the probe cache, runs `probe<Type>` (ffprobe + ID3 for music), then calls `scan()` in `src/core/scanner.ts` which iterates `module.getCategories()` and calls `module.scanCategory()` for each — passing a `probeByPath` map so movies/shows derive each version's quality from ffprobe dimensions via `deriveQuality()`. One run produces `<type>.json` (catalog with `versions: [{category, quality}]`), `probe.json` (rich raw data), and `warnings.json` (everything from both passes). Validation is via Zod in `src/core/rules/`.
+
+**Multi-drive.** A run targets exactly one root, named positionally (`npm run movies external`) or defaulting to the first entry in that type's array. Everything drive-specific is namespaced by `driveSlug(name)` (lowercased): `output/<drive>/<type>/`, `cache/<drive>/<type>-probe.json`, `ignored/<drive>/<type>.yaml`. TMDB caches stay un-sharded at `cache/tmdb-*.json` — keyed by title/year, not path. Drives are never merged and there are no cross-drive checks. Below the runner nothing knows about drives: `MoviesConfig` and friends stay aliases of `BaseMediaConfig` (`{root_path}`), which a `MediaRootConfig` satisfies structurally, so `scanner.ts`, the probe walkers, and the media modules took no changes. `resolveRoot()` / `rootNames()` in `src/core/runner-shared.ts` are shared by both runners; an unknown drive name errors on a single-type run and `[SKIP]`s under `--all`.
 
 **Quality auto-detection** (movies + shows): each category's name is scanned for the whole-word substring `UHD`/`HD`/`SD` (case-insensitive, UHD-first) via `detectQuality` in `src/core/rules/helpers.ts`. The resolved `ResolvedCategory.quality` powers both the `warn_quality_mismatch` check (via `classifyQuality`) and the `warn_multi_quality` duplicate-across-qualities check (per-movie for movies, per-season for shows). Categories without a UHD/HD/SD substring resolve to `quality: null` and behave as general tags — no quality checks apply. See [docs/CONFIG.md](docs/CONFIG.md) "Three configuration shapes" for the user-facing explanation.
 
@@ -51,7 +53,7 @@ code defaults  →  rules/<type>.yaml  →  rules/<type>.local.yaml  →  Zod-va
 - **Code defaults** live in `src/core/rules/<type>.ts` alongside the Zod schema. Neutral / universal — no library-specific values.
 - **`rules/<type>.yaml`** is the committed snapshot of code defaults, every option visible and uncommented. Edit to change project-wide defaults. Commit-friendly.
 - **`rules/<type>.local.yaml`** is the gitignored personal-overrides file. Library-specific values (extra categories, custom quality_thresholds, personal ignored_season_names) live here.
-- **`ignored/<type>.yaml`** (in its own `ignored/` folder, not `rules/`) is a flat list of path prefixes. The `WarningCollector` silently drops any warning whose `path` starts with one of these entries — the user's way of permanently silencing warnings they can't or don't want to fix. Loaded by `src/core/ignored.ts`. Each type also ships a committed `ignored/<type>.yaml.example` reference; the real `<type>.yaml` is gitignored.
+- **`ignored/<drive>/<type>.yaml`** (in its own `ignored/` folder, not `rules/`) is a flat list of path prefixes. The `WarningCollector` silently drops any warning whose `path` starts with one of these entries — the user's way of permanently silencing warnings they can't or don't want to fix. Loaded by `src/core/ignored.ts`. Scoped per drive because warning paths are relative to that drive's `root_path`. Each type ships a committed `ignored/<type>.yaml.example` reference at the top level; the real per-drive files are gitignored.
 
 The loader (`src/core/rules/loader.ts`) deep-merges the layers, resolves the `'current'` sentinel for year ranges, validates with Zod, and prints boot-time messages distinguishing each layer:
 
@@ -63,18 +65,21 @@ The loader (`src/core/rules/loader.ts`) deep-merges the layers, resolves the `'c
 
 Every check emits warnings only. Never auto-fix. Warning messages should include a **recommended fix** when possible (see existing `warn_loose_files` / `warn_quality_mismatch` messages for the pattern). Each warning is gated by a `rules.checks.warn_*` toggle so the user can silence noise.
 
-Each call to `warnings.add(type, path, issue, extension?)` passes a stable `type` — almost always the matching `warn_*` identifier from the rules schema. The exceptions are filesystem-level failures that aren't user-toggleable (e.g. `permission_denied`). The `type` becomes the bucket key under `by_type` in `warnings.json` and what `ignored/<type>.yaml` matches against when entries use the type-scoped object form. If you add a new check, the `type` string must equal the rules toggle name. `WarningCollector` exposes three views: `all()` for a flat sorted list (used by tests + per-type summary), `groupedByType()` for the on-disk shape, and `countByType()` for the run-output breakdown.
+Each call to `warnings.add(type, path, issue, extension?)` passes a stable `type` — almost always the matching `warn_*` identifier from the rules schema. The exceptions are filesystem-level failures that aren't user-toggleable (e.g. `permission_denied`). The `type` becomes the bucket key under `by_type` in `warnings.json` and what `ignored/<drive>/<type>.yaml` matches against when entries use the type-scoped object form. If you add a new check, the `type` string must equal the rules toggle name. `WarningCollector` exposes three views: `all()` for a flat sorted list (used by tests + per-type summary), `groupedByType()` for the on-disk shape, and `countByType()` for the run-output breakdown.
 
 ## Useful commands
 
 ```bash
-npm run movies        # Probe + scan one media type
+npm run movies        # Probe + scan one media type, first configured drive
+npm run movies external   # ...against the root named "External"
 npm run shows
 npm run music
 npm run audiobooks
 npm run scan:all      # All four sequentially
+npm run scan:all external # ...for every type that has an "External" root
 
-npm run validate:movies   # TMDB validation (movies + shows only)
+npm run validate:movies            # TMDB validation (movies + shows only)
+npm run validate:movies external
 npm run validate:all
 
 npm run typecheck     # tsc --noEmit
@@ -82,11 +87,13 @@ npm run lint          # eslint
 npm run lint:fix
 ```
 
-The smoke test pattern is to run the scan against the user's real library on `M:\` and confirm entry counts + warning counts don't regress.
+npm forwards bare positionals, so the drive name needs no `--` separator.
+
+The smoke test pattern is to run the scan against the user's real library and confirm entry counts + warning counts don't regress. `M:\` is "Server" (the full library, all categories); `D:\` is "External" (movies + shows only, `HD`/`SD` categories).
 
 ## Don't waste tokens
 
-The user's library: ~2,500 movies, ~130 shows, ~220 music albums, ~110 audiobooks. With the probe cache primed (which it already is on this machine), all four scans finish in seconds. A FULL first-run probe over movies would be 12–20 min — but the cache should always be warm here. If you must invalidate the cache, do it deliberately. Cache files live at `cache/<type>-probe.json`.
+The user's library: ~2,500 movies, ~130 shows, ~220 music albums, ~110 audiobooks. With the probe cache primed (which it already is on this machine), all four scans finish in seconds. A FULL first-run probe over movies would be 12–20 min — but the cache should always be warm here. If you must invalidate the cache, do it deliberately. Cache files live at `cache/<drive>/<type>-probe.json`.
 
 When making bulk changes across all 4 media types, use `Edit` with `replace_all: true` rather than reading each file separately. Most cross-cutting changes have an identical shape per file.
 

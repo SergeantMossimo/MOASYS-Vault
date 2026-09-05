@@ -13,8 +13,9 @@ cache/
 # The committed `rules/<type>.yaml` files are the shipped defaults.
 rules/*.local.yaml
 
-# Per-user ignore lists. The committed `.yaml.example` files stay in.
-ignored/*.yaml
+# Per-user ignore lists, one folder per drive (ignored/<drive>/<type>.yaml).
+# The committed top-level `.yaml.example` templates stay in.
+ignored/**/*.yaml
 !ignored/*.yaml.example
 
 # Secrets — TMDB API key etc. NEVER commit this.

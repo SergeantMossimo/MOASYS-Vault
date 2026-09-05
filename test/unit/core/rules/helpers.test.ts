@@ -6,6 +6,7 @@ import {
   compilePattern,
   detectQuality,
   resolveCategories,
+  qualitySortKey,
   sortQualities,
 } from '../../../../src/core/rules/helpers'
 
@@ -172,5 +173,33 @@ describe('sortQualities', () => {
 
   it('returns an empty array for an empty input', () => {
     expect(sortQualities([])).toEqual([])
+  })
+})
+
+describe('qualitySortKey', () => {
+  it('ranks the known vocabulary best-to-worst by plain string comparison', () => {
+    const keys = ['SD', 'UHD', 'HD'].map(qualitySortKey).sort()
+    expect(keys).toEqual([qualitySortKey('UHD'), qualitySortKey('HD'), qualitySortKey('SD')])
+  })
+
+  it('sorts unknown qualities after every known one', () => {
+    const keys = ['Kids', 'SD', 'UHD'].map(qualitySortKey).sort()
+    expect(keys).toEqual([qualitySortKey('UHD'), qualitySortKey('SD'), qualitySortKey('Kids')])
+  })
+
+  it('orders two unknown qualities alphabetically, matching sortQualities', () => {
+    const keys = ['Zeta', 'Alpha'].map(qualitySortKey).sort()
+    expect(keys).toEqual([qualitySortKey('Alpha'), qualitySortKey('Zeta')])
+  })
+
+  it('zero-pads the rank so ordering survives a vocabulary longer than ten', () => {
+    expect(qualitySortKey('UHD')).toBe('00|UHD')
+    expect(qualitySortKey('SD')).toBe('02|SD')
+  })
+
+  it('agrees with sortQualities for the full vocabulary plus an outsider', () => {
+    const input = ['SD', 'Kids', 'UHD', 'HD']
+    const viaKey = [...input].sort((a, b) => qualitySortKey(a).localeCompare(qualitySortKey(b)))
+    expect(viaKey).toEqual(sortQualities(input))
   })
 })

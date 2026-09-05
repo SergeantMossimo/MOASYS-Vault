@@ -41,7 +41,9 @@ function runMoviesScan(opts: {
   try {
     const records = scan({ root_path: root }, module, warnings, probes)
     const output = module.serialize(records)
-    return { output, warnings: warnings.all() }
+    // `grouped` is the on-disk warnings.json shape — the only view that
+    // exercises per-bucket row ordering.
+    return { output, warnings: warnings.all(), grouped: warnings.groupedByType() }
   } finally {
     logSpy.mockRestore()
     cleanupLibrary(root)
@@ -287,6 +289,20 @@ describe('movies module — warnings', () => {
     expect(w?.issue).toMatch(/HD, SD/) // canonical-order sort: HD before SD
   })
 
+  it('warn_multi_quality: silenced when warn_multi_quality is off', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'X (2000)': { 'X (2000).mp4': '' } },
+        SD: { 'X (2000)': { 'X (2000).mp4': '' } },
+      },
+      rules: {
+        acceptable_quality_combos: [['UHD', 'HD']],
+        checks: { ...defaultMoviesRules.checks, warn_multi_quality: false },
+      },
+    })
+    expect(result.warnings.some(w => w.type === 'warn_multi_quality')).toBe(false)
+  })
+
   it('warn_no_videos: folder has no video files', () => {
     const result = runMoviesScan({
       spec: {
@@ -369,5 +385,168 @@ describe('movies module — categories integration', () => {
       spec: { UHD: { 'X (2000)': { 'X (2000).mp4': '' } } },
     })
     expect(result.output.length).toBe(1)
+  })
+})
+
+describe('movies module — warn_duplicate_quality', () => {
+  it('fires for {UHD, HD, Other HD} while warn_multi_quality stays silent', () => {
+    // The regression this check exists for. HD and Other HD both resolve to
+    // tier HD, so the tier SET is {UHD, HD} — the whitelisted combo — and the
+    // multi-quality check sees nothing wrong. The third file is a duplicate
+    // only the cardinality check can see.
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'Deadpool (2016)': { 'Deadpool (2016).mp4': '' } },
+        HD: { 'Deadpool (2016)': { 'Deadpool (2016).mp4': '' } },
+        'Other HD': { 'Deadpool (2016)': { 'Deadpool (2016).mp4': '' } },
+      },
+      rules: {
+        categories: [{ name: 'UHD' }, { name: 'HD' }, { name: 'Other HD' }],
+        acceptable_quality_combos: [['UHD', 'HD']],
+      },
+    })
+    const dupes = result.warnings.filter(w => w.type === 'warn_duplicate_quality')
+    expect(dupes.length).toBe(1)
+    expect(dupes[0]?.path).toBe('Deadpool (2016)')
+    expect(dupes[0]?.issue).toMatch(/Duplicate HD copies in 2 folders: HD, Other HD/)
+    expect(result.warnings.some(w => w.type === 'warn_multi_quality')).toBe(false)
+  })
+
+  it('fires for {HD, Other HD} alone — a single-tier set the old check skipped', () => {
+    const result = runMoviesScan({
+      spec: {
+        HD: { 'X (2000)': { 'X (2000).mp4': '' } },
+        'Other HD': { 'X (2000)': { 'X (2000).mp4': '' } },
+      },
+      rules: {
+        categories: [{ name: 'HD' }, { name: 'Other HD' }],
+      },
+    })
+    const dupes = result.warnings.filter(w => w.type === 'warn_duplicate_quality')
+    expect(dupes.length).toBe(1)
+    expect(dupes[0]?.issue).toMatch(/Duplicate HD copies in 2 folders: HD, Other HD/)
+  })
+
+  it('reports one warning per duplicated tier when several tiers duplicate', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'X (2000)': { 'X (2000).mp4': '' } },
+        'Other UHD': { 'X (2000)': { 'X (2000).mp4': '' } },
+        HD: { 'X (2000)': { 'X (2000).mp4': '' } },
+        'Other HD': { 'X (2000)': { 'X (2000).mp4': '' } },
+      },
+      rules: {
+        categories: [{ name: 'UHD' }, { name: 'Other UHD' }, { name: 'HD' }, { name: 'Other HD' }],
+        acceptable_quality_combos: [['UHD', 'HD']],
+      },
+    })
+    const dupes = result.warnings.filter(w => w.type === 'warn_duplicate_quality')
+    expect(dupes.length).toBe(2)
+    // sortQualities puts UHD ahead of HD
+    expect(dupes.map(d => d.issue)).toEqual([
+      expect.stringMatching(/Duplicate UHD copies in 2 folders: UHD, Other UHD/),
+      expect.stringMatching(/Duplicate HD copies in 2 folders: HD, Other HD/),
+    ])
+  })
+
+  it('orders the bucket by quality (UHD, HD, SD), alphabetically within each tier', () => {
+    // Zulu duplicates at UHD and Alpha at SD — path order alone would put
+    // Alpha first. The sortKey groups by quality instead, so the worst
+    // offenders read together at the top.
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'Zulu (2000)': { 'Zulu (2000).mp4': '' } },
+        'Other UHD': { 'Zulu (2000)': { 'Zulu (2000).mp4': '' } },
+        HD: { 'Mike (2001)': { 'Mike (2001).mp4': '' } },
+        'Other HD': { 'Mike (2001)': { 'Mike (2001).mp4': '' } },
+        SD: { 'Alpha (2002)': { 'Alpha (2002).mp4': '' } },
+        'Other SD': { 'Alpha (2002)': { 'Alpha (2002).mp4': '' } },
+      },
+      rules: {
+        categories: [
+          { name: 'UHD' },
+          { name: 'Other UHD' },
+          { name: 'HD' },
+          { name: 'Other HD' },
+          { name: 'SD' },
+          { name: 'Other SD' },
+        ],
+      },
+    })
+    const bucket = result.grouped['warn_duplicate_quality'] ?? []
+    expect(bucket.map(r => r.path)).toEqual(['Zulu (2000)', 'Mike (2001)', 'Alpha (2002)'])
+  })
+
+  it('does not fire for one copy per tier', () => {
+    const result = runMoviesScan({
+      spec: {
+        UHD: { 'X (2000)': { 'X (2000).mp4': '' } },
+        HD: { 'X (2000)': { 'X (2000).mp4': '' } },
+      },
+      rules: {
+        acceptable_quality_combos: [['UHD', 'HD']],
+      },
+    })
+    expect(result.warnings.some(w => w.type === 'warn_duplicate_quality')).toBe(false)
+  })
+
+  it('does not fire for general-tag categories, which each form their own tier', () => {
+    const result = runMoviesScan({
+      spec: {
+        Kids: { 'X (2000)': { 'X (2000).mp4': '' } },
+        Documentaries: { 'X (2000)': { 'X (2000).mp4': '' } },
+      },
+      rules: {
+        categories: [{ name: 'Kids' }, { name: 'Documentaries' }],
+        quality_thresholds: [],
+      },
+    })
+    expect(result.warnings.some(w => w.type === 'warn_duplicate_quality')).toBe(false)
+  })
+
+  it('is not silenceable via acceptable_quality_combos', () => {
+    // Even listing the exact tier set as acceptable leaves the duplicate
+    // reported — combos describe tiers, not copy counts.
+    const result = runMoviesScan({
+      spec: {
+        HD: { 'X (2000)': { 'X (2000).mp4': '' } },
+        'Other HD': { 'X (2000)': { 'X (2000).mp4': '' } },
+      },
+      rules: {
+        categories: [{ name: 'HD' }, { name: 'Other HD' }],
+        acceptable_quality_combos: [['HD'], ['UHD', 'HD']],
+      },
+    })
+    expect(result.warnings.some(w => w.type === 'warn_duplicate_quality')).toBe(true)
+  })
+
+  it('silenced when warn_duplicate_quality is off, leaving warn_multi_quality intact', () => {
+    const result = runMoviesScan({
+      spec: {
+        'Other HD': { 'X (2000)': { 'X (2000).mp4': '' } },
+        HD: { 'X (2000)': { 'X (2000).mp4': '' } },
+        SD: { 'X (2000)': { 'X (2000).mp4': '' } },
+      },
+      rules: {
+        categories: [{ name: 'Other HD' }, { name: 'HD' }, { name: 'SD' }],
+        acceptable_quality_combos: [['UHD', 'HD']],
+        checks: { ...defaultMoviesRules.checks, warn_duplicate_quality: false },
+      },
+    })
+    expect(result.warnings.some(w => w.type === 'warn_duplicate_quality')).toBe(false)
+    expect(result.warnings.some(w => w.type === 'warn_multi_quality')).toBe(true)
+  })
+
+  it('scopes per edition — a UHD theatrical and an HD director’s cut are distinct records', () => {
+    const result = runMoviesScan({
+      spec: {
+        HD: { 'X (2000)': { 'X (2000).mp4': '' } },
+        'Other HD': { 'X (2000)': { "X (2000) {edition-Director's Cut}.mp4": '' } },
+      },
+      rules: {
+        categories: [{ name: 'HD' }, { name: 'Other HD' }],
+      },
+    })
+    expect(result.warnings.some(w => w.type === 'warn_duplicate_quality')).toBe(false)
   })
 })

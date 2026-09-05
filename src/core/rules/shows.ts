@@ -70,6 +70,11 @@ export const ShowsRulesSchema = z.object({
    * are different seasons in different qualities. The check fires only when
    * a SINGLE season has copies in multiple qualities (e.g. you have S01 on
    * both DVD and Bluray). Comparison is set-based — order doesn't matter.
+   *
+   * Silences `warn_multi_quality` only. A combo lists which quality TIERS may
+   * coexist, so it can never silence `warn_duplicate_quality` — a season in
+   * `HD/` + `Other HD/` + `UHD/` still resolves to the tier set {UHD, HD} and
+   * matches `[UHD, HD]`, but the two HD-tier copies are reported regardless.
    */
   acceptable_quality_combos: z.array(z.array(z.string())),
 
@@ -84,6 +89,15 @@ export const ShowsRulesSchema = z.object({
     warn_season_mismatch: z.boolean(),
     warn_episode_gaps: z.boolean(),
     warn_quality_mismatch: z.boolean(),
+    /**
+     * A SINGLE season exists in two or more category folders that resolve to
+     * the SAME quality tier (e.g. S01 is in both `HD/` and `Other HD/`) —
+     * redundant copies of the same episodes. Per-season scope, so S01 in
+     * `HD/` and S02 in `Other HD/` does NOT trigger this. Deliberately NOT
+     * silenceable via `acceptable_quality_combos`: those describe which tiers
+     * may coexist, not how many copies may sit inside one tier.
+     */
+    warn_duplicate_quality: z.boolean(),
     /**
      * A SINGLE season exists in multiple distinct qualities (e.g. S01 is in
      * both HD and SD). Per-season scope — different seasons in different
@@ -202,6 +216,7 @@ export const defaultShowsRules: ShowsRules = ShowsRulesSchema.parse({
     warn_season_mismatch: true,
     warn_episode_gaps: true,
     warn_quality_mismatch: true,
+    warn_duplicate_quality: true,
     warn_multi_quality: true,
     warn_loose_files: true,
     warn_extra_subfolders: true,

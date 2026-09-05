@@ -3,14 +3,20 @@
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # A "do not warn me about this" list for your movie library. Anything you put
-# here gets silently dropped from output/movies/warnings.json on every run.
+# here gets silently dropped from output/<drive>/movies/warnings.json on every
+# run.
+#
+# Ignore lists are per DRIVE as well as per type, because the paths below are
+# relative to that drive's root_path. `<drive>` is the lowercased `name` of a
+# root in config.json — e.g. `server`, `external`.
 #
 # How to use this file:
-#   1. Copy this file to `ignored/movies.yaml` (drop the `.example` suffix).
-#      The real `movies.yaml` is gitignored so your personal decisions don't
-#      end up in version control.
+#   1. Copy this file to `ignored/<drive>/movies.yaml` (create the drive
+#      folder, drop the `.example` suffix). The real per-drive files are
+#      gitignored so your personal decisions don't end up in version control.
 #   2. Add path prefixes below — one per line.
-#   3. Re-run `npm run movies`. Matching warnings disappear from the output.
+#   3. Re-run `npm run movies <drive>`. Matching warnings disappear from the
+#      output.
 #
 # Two entry shapes — pick whichever fits each case:
 #
@@ -26,8 +32,8 @@
 # Matching is case-insensitive and forward-slash-normalized, so the same
 # file works on Windows (backslashes) and macOS/Linux (forward slashes).
 #
-# Get the paths to add from output/movies/warnings.json and
-# output/movies/validation-warnings.json — paths live under each `by_type`
+# Get the paths to add from output/<drive>/movies/warnings.json and
+# output/<drive>/movies/validation-warnings.json — paths live under each `by_type`
 # bucket. The bucket key (e.g. `warn_tmdb_no_match`) is the warning type;
 # you can also find every type listed in rules/movies.yaml under `checks`.
 # ─────────────────────────────────────────────────────────────────────────────

@@ -11,8 +11,18 @@
  *
  * All four media types are required to match the existing registry-based
  * dispatch in `src/scan.ts`. If you have a library that doesn't include one
- * of the types, give it a placeholder `root_path` (it won't be touched
- * unless you run that media type's commands).
+ * of the types, give it a placeholder root (it won't be touched unless you
+ * run that media type's commands).
+ *
+ * Each media type is a LIST of named roots so a library can span drives:
+ *
+ *   "movies": [
+ *     { "root_path": "M:\\Movies", "name": "Server" },
+ *     { "root_path": "D:\\Movies", "name": "External" }
+ *   ]
+ *
+ * A run always targets exactly one root — named positionally
+ * (`npm run movies external`) or defaulting to the first entry.
  */
 
 import fs from 'fs'
@@ -26,10 +36,56 @@ import { AppConfig } from './types'
 // Schema
 // ─────────────────────────────────────────────
 
-/** Each media type carries just `root_path` (subfolder lists live in rules). */
-const MediaTypeConfigSchema = z.object({
+/**
+ * One named root. `root_path` is the per-machine location; `name` identifies
+ * the drive and becomes a folder segment under cache/, ignored/, and output/,
+ * so it's restricted to characters that are safe in a path on every platform.
+ *
+ * The regex allows dots (so `NAS.2` works) but `.` and `..` are rejected
+ * outright: they're valid against the character class yet would resolve the
+ * output folder somewhere other than where it belongs (`output/../movies`).
+ * Path separators and colons are already excluded, so a name can never be
+ * absolute or climb more than the one level this check blocks.
+ */
+const MediaRootSchema = z.object({
   root_path: z.string().min(1, 'root_path must be a non-empty string'),
+  name: z
+    .string()
+    .min(1, 'name must be a non-empty string')
+    .regex(
+      /^[A-Za-z0-9._-]+$/,
+      'name may only contain letters, numbers, dots, dashes, and underscores (it becomes a folder name)'
+    )
+    .refine(
+      value => value !== '.' && value !== '..',
+      "name cannot be '.' or '..' — it is used as a folder name"
+    ),
 })
+
+/**
+ * A media type's list of roots: at least one, with unique names. Names are
+ * compared case-insensitively because they resolve to folder names, and
+ * Windows would silently collapse "Server" and "server" into one directory.
+ */
+const MediaRootListSchema = z
+  .array(MediaRootSchema)
+  .min(1, 'must list at least one root, e.g. [{ "root_path": "M:\\\\Movies", "name": "Server" }]')
+  .superRefine((roots, ctx) => {
+    const seen = new Map<string, number>()
+    roots.forEach((root, i) => {
+      const key = root.name.toLowerCase()
+      const first = seen.get(key)
+      if (first !== undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [i, 'name'],
+          message: `duplicate name '${root.name}' (already used at index ${first}); names must be unique per media type`,
+        })
+        return
+      }
+      seen.set(key, i)
+    })
+  })
 
 /**
  * Full `config.json` schema.
@@ -39,15 +95,68 @@ const MediaTypeConfigSchema = z.object({
  */
 export const AppConfigSchema = z.object({
   _notes: z.record(z.string(), z.string()).optional(),
-  movies: MediaTypeConfigSchema,
-  shows: MediaTypeConfigSchema,
-  music: MediaTypeConfigSchema,
-  audiobooks: MediaTypeConfigSchema,
+  movies: MediaRootListSchema,
+  shows: MediaRootListSchema,
+  music: MediaRootListSchema,
+  audiobooks: MediaRootListSchema,
 })
+
+// ─────────────────────────────────────────────
+// Drive names
+// ─────────────────────────────────────────────
+
+/**
+ * Convert a root's configured `name` into the folder segment used under
+ * cache/, ignored/, and output/. Lowercased so `"Server"` and `"server"`
+ * always resolve to the same directory regardless of how the user typed it
+ * in config.json or on the command line.
+ */
+export function driveSlug(name: string): string {
+  return name.toLowerCase()
+}
 
 // ─────────────────────────────────────────────
 // Loader
 // ─────────────────────────────────────────────
+
+const MEDIA_TYPE_KEYS = ['movies', 'shows', 'music', 'audiobooks'] as const
+
+const EXAMPLE_CONFIG = `    {
+      "movies":     [{ "root_path": "M:\\\\Movies",     "name": "Server" },
+                     { "root_path": "D:\\\\Movies",     "name": "External" }],
+      "shows":      [{ "root_path": "M:\\\\Shows",      "name": "Server" }],
+      "music":      [{ "root_path": "M:\\\\Audio",      "name": "Server" }],
+      "audiobooks": [{ "root_path": "M:\\\\Audiobooks", "name": "Server" }]
+    }`
+
+/**
+ * Detect the pre-multi-drive shape (`"movies": { "root_path": "..." }`) and
+ * print a migration message instead of the generic Zod "expected array"
+ * error, which doesn't tell the user what to actually do.
+ *
+ * Worth special-casing because the old single-root format also invited
+ * duplicate `root_path` keys as a workaround — and `JSON.parse` silently
+ * keeps only the last one, so a two-drive config appeared to work while
+ * scanning just one drive.
+ */
+function reportLegacyShape(raw: unknown): void {
+  if (typeof raw !== 'object' || raw === null) return
+
+  const record = raw as Record<string, unknown>
+  const legacy = MEDIA_TYPE_KEYS.filter(key => {
+    const section = record[key]
+    return typeof section === 'object' && section !== null && !Array.isArray(section)
+  })
+  if (legacy.length === 0) return
+
+  console.error('\n  Error: config.json uses the old single-root format.')
+  console.error(`  Each media type is now a LIST of named roots (${legacy.join(', ')}).`)
+  console.error('  Rewrite it like this:')
+  console.error(EXAMPLE_CONFIG)
+  console.error('\n  Each `name` becomes a folder under cache/, ignored/, and output/,')
+  console.error('  and is how you select a drive: `npm run movies external`.')
+  process.exit(1)
+}
 
 /**
  * Load and validate `config.json`. On any failure (missing file, malformed
@@ -62,13 +171,8 @@ export function loadConfig(projectRoot: string): AppConfig {
 
   if (!fs.existsSync(configPath)) {
     console.error(`\n  Error: config.json not found at ${configPath}`)
-    console.error('  Create it with a root_path for each media type. Minimal example:')
-    console.error('    {')
-    console.error('      "movies":     { "root_path": "M:\\\\Movies" },')
-    console.error('      "shows":      { "root_path": "M:\\\\Shows" },')
-    console.error('      "music":      { "root_path": "M:\\\\Audio" },')
-    console.error('      "audiobooks": { "root_path": "M:\\\\Audiobooks" }')
-    console.error('    }')
+    console.error('  Create it with one or more named roots per media type. Minimal example:')
+    console.error(EXAMPLE_CONFIG)
     process.exit(1)
   }
 
@@ -79,6 +183,8 @@ export function loadConfig(projectRoot: string): AppConfig {
     console.error(`\n  Error parsing config.json: ${(err as Error).message}`)
     process.exit(1)
   }
+
+  reportLegacyShape(raw)
 
   const parsed = AppConfigSchema.safeParse(raw)
   if (!parsed.success) {

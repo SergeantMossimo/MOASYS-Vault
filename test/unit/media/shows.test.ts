@@ -36,7 +36,9 @@ function runShowsScan(opts: {
   try {
     const records = scan({ root_path: root }, module, warnings, probes)
     const output = module.serialize(records)
-    return { output, warnings: warnings.all() }
+    // `grouped` is the on-disk warnings.json shape — the only view that
+    // exercises per-bucket row ordering.
+    return { output, warnings: warnings.all(), grouped: warnings.groupedByType() }
   } finally {
     logSpy.mockRestore()
     cleanupLibrary(root)
@@ -440,6 +442,105 @@ describe('shows module — warn_multi_quality (per-season)', () => {
       },
     })
     expect(result.warnings.some(w => w.issue.match(/multiple qualities/))).toBe(false)
+  })
+})
+
+describe('shows module — warn_duplicate_quality (per-season)', () => {
+  it('fires for {UHD, HD, Other HD} while warn_multi_quality stays silent', () => {
+    // HD and Other HD both resolve to tier HD, so the tier SET is {UHD, HD} —
+    // the whitelisted combo — and multi_quality sees nothing. The third copy
+    // is only visible to the cardinality check.
+    const result = runShowsScan({
+      spec: {
+        UHD: { 'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } } },
+        HD: { 'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } } },
+        'Other HD': { 'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } } },
+      },
+      rules: {
+        categories: [{ name: 'UHD' }, { name: 'HD' }, { name: 'Other HD' }],
+        acceptable_quality_combos: [['UHD', 'HD']],
+      },
+    })
+    const dupes = result.warnings.filter(w => w.type === 'warn_duplicate_quality')
+    expect(dupes.length).toBe(1)
+    expect(dupes[0]?.path).toBe('Show (2020) — Season 1')
+    expect(dupes[0]?.issue).toMatch(/Season 1 has duplicate HD copies in 2 folders: HD, Other HD/)
+    expect(result.warnings.some(w => w.type === 'warn_multi_quality')).toBe(false)
+  })
+
+  it('fires for {HD, Other HD} alone — a single-tier set the old check skipped', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: { 'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } } },
+        'Other HD': { 'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } } },
+      },
+      rules: {
+        categories: [{ name: 'HD' }, { name: 'Other HD' }],
+      },
+    })
+    expect(result.warnings.some(w => w.type === 'warn_duplicate_quality')).toBe(true)
+  })
+
+  it('does NOT fire when different seasons sit in same-tier folders', () => {
+    // Per-season scope: each season sees exactly one category, so S01 in HD/
+    // and S02 in Other HD/ is a split library, not a duplicate.
+    const result = runShowsScan({
+      spec: {
+        HD: { 'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } } },
+        'Other HD': { 'Show (2020)': { 'Season 02': { 'Show (2020) - S02E01.mp4': '' } } },
+      },
+      rules: {
+        categories: [{ name: 'HD' }, { name: 'Other HD' }],
+      },
+    })
+    expect(result.warnings.some(w => w.type === 'warn_duplicate_quality')).toBe(false)
+  })
+
+  it('orders the bucket by quality (UHD, HD, SD), alphabetically within each tier', () => {
+    const result = runShowsScan({
+      spec: {
+        UHD: { 'Zulu (2000)': { 'Season 01': { 'Zulu (2000) - S01E01.mp4': '' } } },
+        'Other UHD': { 'Zulu (2000)': { 'Season 01': { 'Zulu (2000) - S01E01.mp4': '' } } },
+        SD: { 'Alpha (2002)': { 'Season 01': { 'Alpha (2002) - S01E01.mp4': '' } } },
+        'Other SD': { 'Alpha (2002)': { 'Season 01': { 'Alpha (2002) - S01E01.mp4': '' } } },
+      },
+      rules: {
+        categories: [{ name: 'UHD' }, { name: 'Other UHD' }, { name: 'SD' }, { name: 'Other SD' }],
+      },
+    })
+    const bucket = result.grouped['warn_duplicate_quality'] ?? []
+    expect(bucket.map(r => r.path)).toEqual(['Zulu (2000) — Season 1', 'Alpha (2002) — Season 1'])
+  })
+
+  it('is not silenceable via acceptable_quality_combos', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: { 'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } } },
+        'Other HD': { 'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } } },
+      },
+      rules: {
+        categories: [{ name: 'HD' }, { name: 'Other HD' }],
+        acceptable_quality_combos: [['HD'], ['UHD', 'HD']],
+      },
+    })
+    expect(result.warnings.some(w => w.type === 'warn_duplicate_quality')).toBe(true)
+  })
+
+  it('silenced when the toggle is false, leaving warn_multi_quality intact', () => {
+    const result = runShowsScan({
+      spec: {
+        HD: { 'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } } },
+        'Other HD': { 'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } } },
+        SD: { 'Show (2020)': { 'Season 01': { 'Show (2020) - S01E01.mp4': '' } } },
+      },
+      rules: {
+        categories: [{ name: 'HD' }, { name: 'Other HD' }, { name: 'SD' }],
+        acceptable_quality_combos: [['UHD', 'HD']],
+        checks: { ...defaultShowsRules.checks, warn_duplicate_quality: false },
+      },
+    })
+    expect(result.warnings.some(w => w.type === 'warn_duplicate_quality')).toBe(false)
+    expect(result.warnings.some(w => w.type === 'warn_multi_quality')).toBe(true)
   })
 })
 

@@ -119,6 +119,103 @@ describe('validateMovies — confidence scoring', () => {
     expect(result[0]?.confidence).toBe('medium')
   })
 
+  it('resolves "medium" via the loose tier when a colon was rendered as " - "', async () => {
+    const client = mockClient({
+      searchResults: [
+        {
+          id: 425909,
+          title: 'Ghostbusters: Afterlife',
+          original_title: 'Ghostbusters: Afterlife',
+          release_date: '2021-11-18',
+          popularity: 20,
+        },
+      ],
+      details: {
+        425909: {
+          id: 425909,
+          title: 'Ghostbusters: Afterlife',
+          original_title: 'Ghostbusters: Afterlife',
+          release_date: '2021-11-18',
+        },
+      },
+    })
+
+    const result = await validateMovies(
+      [movie('Ghostbusters - Afterlife', 2021)],
+      defaultMoviesRules,
+      client,
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    // 90 (loose title) + 50 (exact year) = 140 → medium, and no no-match warning.
+    expect(result[0]?.confidence).toBe('medium')
+    expect(result[0]?.tmdb_id).toBe(425909)
+    expect(warnings.all().filter(w => w.type === 'warn_tmdb_no_match')).toHaveLength(0)
+  })
+
+  it('keeps "high" for a slash title the strict tier already handled', async () => {
+    const client = mockClient({
+      searchResults: [
+        {
+          id: 754,
+          title: 'Face/Off',
+          original_title: 'Face/Off',
+          release_date: '1997-06-27',
+          popularity: 17.8,
+        },
+      ],
+      details: {
+        754: {
+          id: 754,
+          title: 'Face/Off',
+          original_title: 'Face/Off',
+          release_date: '1997-06-27',
+        },
+      },
+    })
+
+    const result = await validateMovies(
+      [movie('FaceOff', 1997)],
+      defaultMoviesRules,
+      client,
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    expect(result[0]?.confidence).toBe('high')
+    expect(result[0]?.tmdb_id).toBe(754)
+  })
+
+  it('still resolves "none" when the title genuinely differs', async () => {
+    const client = mockClient({
+      searchResults: [
+        {
+          id: 11418,
+          title: 'Halloween H20: 20 Years Later',
+          original_title: 'Halloween H20: 20 Years Later',
+          release_date: '1998-08-05',
+          popularity: 12,
+        },
+      ],
+    })
+
+    const result = await validateMovies(
+      [movie('Halloween H2o - 20 Years Later', 1998)],
+      defaultMoviesRules,
+      client,
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    // "H2o" vs "H20" is a real folder typo — the loose tier must not paper over it.
+    expect(result[0]?.confidence).toBe('none')
+    expect(result[0]?.tmdb_id).toBeNull()
+  })
+
   it('resolves "low" confidence for partial title match', async () => {
     const client = mockClient({
       searchResults: [
@@ -438,6 +535,82 @@ describe('validateMovies — caching', () => {
     const client = mockClient({ searchResults: [] })
     const searchCache = memoryCache<ResolvedSearch>({
       'movie|the crow|1994': { best_id: null, confidence: 'high', candidates: [] },
+    })
+
+    await validateMovies(
+      [movie('The Crow', 1994)],
+      defaultMoviesRules,
+      client,
+      searchCache,
+      memoryCache(),
+      new WarningCollector()
+    )
+
+    expect((client.searchMovie as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0)
+  })
+
+  it('re-queries TMDB when the cached verdict is "none"', async () => {
+    // A cached no-match is never final: TMDB's search index changes, which is
+    // exactly how "Face/Off" stayed a false no-match across many runs.
+    const client = mockClient({
+      searchResults: [
+        {
+          id: 754,
+          title: 'Face/Off',
+          original_title: 'Face/Off',
+          release_date: '1997-06-27',
+          popularity: 17.8,
+        },
+      ],
+      details: {
+        754: {
+          id: 754,
+          title: 'Face/Off',
+          original_title: 'Face/Off',
+          release_date: '1997-06-27',
+        },
+      },
+    })
+    const searchCache = memoryCache<ResolvedSearch>({
+      'movie|faceoff|1997': { best_id: null, confidence: 'none', candidates: [59091] },
+    })
+
+    const result = await validateMovies(
+      [movie('FaceOff', 1997)],
+      defaultMoviesRules,
+      client,
+      searchCache,
+      memoryCache(),
+      new WarningCollector()
+    )
+
+    expect((client.searchMovie as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1)
+    expect(result[0]?.confidence).toBe('high')
+    expect(searchCache.get('movie|faceoff|1997')?.best_id).toBe(754)
+  })
+
+  it('re-queries TMDB when the cached verdict is "low"', async () => {
+    const client = mockClient({ searchResults: [] })
+    const searchCache = memoryCache<ResolvedSearch>({
+      'movie|the crow|1994': { best_id: 100, confidence: 'low', candidates: [100] },
+    })
+
+    await validateMovies(
+      [movie('The Crow', 1994)],
+      defaultMoviesRules,
+      client,
+      searchCache,
+      memoryCache(),
+      new WarningCollector()
+    )
+
+    expect((client.searchMovie as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1)
+  })
+
+  it('serves cached "medium" verdicts without calling TMDB', async () => {
+    const client = mockClient({ searchResults: [] })
+    const searchCache = memoryCache<ResolvedSearch>({
+      'movie|the crow|1994': { best_id: null, confidence: 'medium', candidates: [] },
     })
 
     await validateMovies(

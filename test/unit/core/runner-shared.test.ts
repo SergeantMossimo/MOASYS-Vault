@@ -3,8 +3,14 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-import { parseRunnerArgs, writeJsonOutput, writeWarnings } from '../../../src/core/runner-shared'
-import { WarningCollector } from '../../../src/core/types'
+import {
+  parseRunnerArgs,
+  resolveRoot,
+  rootNames,
+  writeJsonOutput,
+  writeWarnings,
+} from '../../../src/core/runner-shared'
+import { MediaRootConfig, WarningCollector } from '../../../src/core/types'
 
 const VALID_TYPES = ['movies', 'shows', 'music', 'audiobooks'] as const
 
@@ -79,6 +85,80 @@ describe('parseRunnerArgs', () => {
     setArgv('--quiet')
     expect(() => parseRunnerArgs(VALID_TYPES)).toThrow('process.exit called')
     expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/unknown flag/i))
+  })
+
+  // npm forwards bare positionals, so `npm run movies external` reaches the
+  // script as `--type movies external`.
+  it('reads a trailing drive name after --type <value>', () => {
+    setArgv('--type', 'movies', 'external')
+    expect(parseRunnerArgs(VALID_TYPES)).toEqual({
+      kind: 'one',
+      type: 'movies',
+      drive: 'external',
+    })
+  })
+
+  it('reads a trailing drive name after --all', () => {
+    setArgv('--all', 'external')
+    expect(parseRunnerArgs(VALID_TYPES)).toEqual({ kind: 'all', drive: 'external' })
+  })
+
+  it('does not mistake the type value for a drive name', () => {
+    setArgv('--type', 'movies')
+    const parsed = parseRunnerArgs(VALID_TYPES)
+    expect(parsed).toEqual({ kind: 'one', type: 'movies', drive: undefined })
+  })
+
+  it('skips flags when looking for the drive positional', () => {
+    setArgv('--type', 'movies', '--refresh-older-than=30d', 'external')
+    expect(parseRunnerArgs(VALID_TYPES)).toEqual({
+      kind: 'one',
+      type: 'movies',
+      drive: 'external',
+    })
+  })
+})
+
+describe('resolveRoot', () => {
+  const roots: MediaRootConfig[] = [
+    { root_path: 'M:\\Movies', name: 'Server' },
+    { root_path: 'D:\\Movies', name: 'External' },
+  ]
+
+  it('returns the first root when no drive is named', () => {
+    expect(resolveRoot(roots, undefined)).toEqual(roots[0])
+  })
+
+  it('matches a named drive', () => {
+    expect(resolveRoot(roots, 'External')).toEqual(roots[1])
+  })
+
+  it('matches case-insensitively', () => {
+    expect(resolveRoot(roots, 'external')).toEqual(roots[1])
+    expect(resolveRoot(roots, 'EXTERNAL')).toEqual(roots[1])
+  })
+
+  it('returns null for an unknown drive rather than falling back', () => {
+    expect(resolveRoot(roots, 'nas')).toBeNull()
+  })
+
+  it('returns null when there are no roots at all', () => {
+    expect(resolveRoot([], undefined)).toBeNull()
+  })
+})
+
+describe('rootNames', () => {
+  it('joins the configured names for error messages', () => {
+    expect(
+      rootNames([
+        { root_path: 'M:\\Movies', name: 'Server' },
+        { root_path: 'D:\\Movies', name: 'External' },
+      ])
+    ).toBe('Server, External')
+  })
+
+  it('returns an empty string for no roots', () => {
+    expect(rootNames([])).toBe('')
   })
 })
 
@@ -162,7 +242,7 @@ describe('writeWarnings', () => {
   it('preserves the optional extension field on individual warnings', () => {
     const out = path.join(tmpDir, 'warnings.json')
     const warnings = new WarningCollector()
-    warnings.add('warn_non_primary', 'path/to/file.mkv', 'Non-MP4', '.mkv')
+    warnings.add('warn_non_primary', 'path/to/file.mkv', 'Non-MP4', { extension: '.mkv' })
 
     writeWarnings(out, warnings)
     const parsed = JSON.parse(fs.readFileSync(out, 'utf-8'))
@@ -196,7 +276,7 @@ describe('WarningCollector', () => {
 
   it('attaches the optional extension field only when provided', () => {
     const wc = new WarningCollector()
-    wc.add('warn_non_primary', 'a.mkv', 'Non-MP4', '.mkv')
+    wc.add('warn_non_primary', 'a.mkv', 'Non-MP4', { extension: '.mkv' })
     expect(wc.all()[0]?.extension).toBe('.mkv')
   })
 
@@ -281,7 +361,7 @@ describe('WarningCollector', () => {
 
     it('preserves the extension field on individual rows', () => {
       const wc = new WarningCollector()
-      wc.add('warn_non_primary', 'file.mkv', 'Non-MP4', '.mkv')
+      wc.add('warn_non_primary', 'file.mkv', 'Non-MP4', { extension: '.mkv' })
       expect(wc.groupedByType()['warn_non_primary']).toEqual([
         { path: 'file.mkv', issue: 'Non-MP4', extension: '.mkv' },
       ])
@@ -291,6 +371,33 @@ describe('WarningCollector', () => {
       const wc = new WarningCollector()
       wc.add('warn_thing', 'p', 'i')
       expect('extension' in (wc.groupedByType()['warn_thing']?.[0] ?? {})).toBe(false)
+    })
+
+    it('orders rows by sortKey when one is supplied, overriding path order', () => {
+      const wc = new WarningCollector()
+      wc.add('warn_q', 'Zebra', 'z', { sortKey: '00|UHD' })
+      wc.add('warn_q', 'Apple', 'a', { sortKey: '01|HD' })
+      expect(wc.groupedByType()['warn_q']?.map(r => r.path)).toEqual(['Zebra', 'Apple'])
+    })
+
+    it('falls back to path order within a single sortKey group', () => {
+      const wc = new WarningCollector()
+      wc.add('warn_q', 'Zebra', 'z', { sortKey: '01|HD' })
+      wc.add('warn_q', 'Apple', 'a', { sortKey: '01|HD' })
+      expect(wc.groupedByType()['warn_q']?.map(r => r.path)).toEqual(['Apple', 'Zebra'])
+    })
+
+    it('never serializes sortKey to the on-disk row', () => {
+      const wc = new WarningCollector()
+      wc.add('warn_q', 'p', 'i', { sortKey: '00|UHD' })
+      expect(wc.groupedByType()['warn_q']).toEqual([{ path: 'p', issue: 'i' }])
+    })
+
+    it('applies the same ordering in all() so the summary matches the file', () => {
+      const wc = new WarningCollector()
+      wc.add('warn_q', 'Zebra', 'z', { sortKey: '00|UHD' })
+      wc.add('warn_q', 'Apple', 'a', { sortKey: '01|HD' })
+      expect(wc.all().map(w => w.path)).toEqual(['Zebra', 'Apple'])
     })
   })
 

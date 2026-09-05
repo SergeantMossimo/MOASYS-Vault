@@ -47,6 +47,7 @@ Movies/
 - An empty `{edition-}` tag with no value after the dash (`warn_empty_edition`)
 - Two files in the same folder claim the same edition (`warn_duplicate_edition`)
 - The same movie appears in more than one quality folder — _only fires if your `categories` are organized by quality_ — unless the combination is whitelisted in `acceptable_quality_combos` (`warn_multi_quality`)
+- The same movie appears in two or more folders of the _same_ quality tier, e.g. `HD/` and `Other HD/` — redundant copies of the same thing. `acceptable_quality_combos` never silences this, since a combo describes which tiers may coexist, not how many copies may sit inside one (`warn_duplicate_quality`)
 - Subfolders inside a movie folder (`warn_extra_subfolders`). **Heads up:** any video files inside those subfolders are NOT added to the catalog — the scanner only reads direct children of the movie folder. You'll see the subfolder name in `warnings.json` so you know what got skipped.
 
 ---

@@ -1,14 +1,12 @@
 {
-  "movies": {
-    "root_path": "M:\\Movies"
-  },
-  "shows": {
-    "root_path": "M:\\Shows"
-  },
-  "music": {
-    "root_path": "M:\\Audio"
-  },
-  "audiobooks": {
-    "root_path": "M:\\Audiobooks"
-  }
+  "movies": [
+    { "root_path": "M:\\Movies", "name": "Server" },
+    { "root_path": "D:\\Movies", "name": "External" }
+  ],
+  "shows": [
+    { "root_path": "M:\\Shows", "name": "Server" },
+    { "root_path": "D:\\Shows", "name": "External" }
+  ],
+  "music": [{ "root_path": "M:\\Audio", "name": "Server" }],
+  "audiobooks": [{ "root_path": "M:\\Audiobooks", "name": "Server" }]
 }

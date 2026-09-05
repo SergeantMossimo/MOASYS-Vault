@@ -124,6 +124,22 @@ export function sortQualities(qualities: Iterable<string>): string[] {
 }
 
 /**
+ * A sortable string that orders qualities the way `sortQualities` does —
+ * known qualities in UHD → HD → SD order first, anything outside the
+ * vocabulary alphabetically after them.
+ *
+ * Handed to `WarningCollector.add` as a `sortKey` so a warning bucket groups
+ * by quality instead of by path: every UHD row, then every HD row, then every
+ * SD row, alphabetical by title within each. The rank is zero-padded so the
+ * string comparison stays correct if `KNOWN_QUALITIES` ever grows past ten.
+ */
+export function qualitySortKey(quality: string): string {
+  const i = (KNOWN_QUALITIES as readonly string[]).indexOf(quality)
+  const rank = i === -1 ? KNOWN_QUALITIES.length : i
+  return `${String(rank).padStart(2, '0')}|${quality}`
+}
+
+/**
  * Auto-detect a quality keyword from a category name. Uses whole-word,
  * case-insensitive matching so:
  *   - "UHD" / "Other UHD" / "Director's Cut UHD"  → "UHD"
@@ -159,4 +175,34 @@ export function resolveCategories(configured: Category[]): ResolvedCategory[] {
     name: c.name,
     quality: detectQuality(c.name),
   }))
+}
+
+/**
+ * Map each category name to the quality tier it belongs to. Categories whose
+ * name carries no quality keyword map to their own name, so a general-tag
+ * library ("Kids", "Documentaries") gets one tier per tag rather than all of
+ * them collapsing into a single null bucket.
+ *
+ * Built once per media module at boot and handed to `groupCategoriesByQuality`
+ * (core/versions.ts) by the multi-quality and duplicate-quality checks.
+ */
+export function buildCategoryQualityMap(cats: ResolvedCategory[]): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const c of cats) {
+    out.set(c.name, c.quality ?? c.name)
+  }
+  return out
+}
+
+/**
+ * Return true if the quality set matches one of the acceptable combos.
+ * Set-based: order inside a combo doesn't matter, but the sizes must match
+ * exactly, so `[UHD, HD]` accepts `{UHD, HD}` and nothing wider.
+ *
+ * Combos describe which quality tiers may legitimately coexist — they say
+ * nothing about how many copies live inside one tier, which is why
+ * `warn_duplicate_quality` deliberately ignores them.
+ */
+export function isAcceptableCombo(qualities: Set<string>, combos: readonly string[][]): boolean {
+  return combos.some(combo => combo.length === qualities.size && combo.every(q => qualities.has(q)))
 }
