@@ -10,7 +10,7 @@ This page is the complete reference for what the scanner writes and every warnin
 
 ## Output files
 
-Every run writes its files under `output/<type>/`. There are up to five files per media type:
+Every run writes its files under `output/<drive>/<type>/`, where `<drive>` is the lowercased `name` of the root you scanned (see [Configuration](CONFIG.md#configjson)). There are up to five files per media type, per drive:
 
 | File                       | Written by               | What it is                                                               |
 | -------------------------- | ------------------------ | ------------------------------------------------------------------------ |
@@ -22,31 +22,43 @@ Every run writes its files under `output/<type>/`. There are up to five files pe
 
 The validate files only appear after you run `npm run validate:<type>`, and that command is movies and shows only. Music and audiobooks never produce validate files.
 
-Full layout:
+Full layout, for a config with a `Server` root on every type and an `External` root on movies and shows:
 
 ```text
 output/
-├── movies/
-│   ├── movies.json
-│   ├── probe.json
-│   ├── warnings.json
-│   ├── validation.json
-│   └── validation-warnings.json
-├── shows/
-│   ├── shows.json
-│   ├── probe.json
-│   ├── warnings.json
-│   ├── validation.json
-│   └── validation-warnings.json
-├── music/
-│   ├── music.json
-│   ├── probe.json
-│   └── warnings.json
-└── audiobooks/
-    ├── audiobooks.json
-    ├── probe.json
-    └── warnings.json
+├── server/
+│   ├── movies/
+│   │   ├── movies.json
+│   │   ├── probe.json
+│   │   ├── warnings.json
+│   │   ├── validation.json
+│   │   └── validation-warnings.json
+│   ├── shows/
+│   │   ├── shows.json
+│   │   ├── probe.json
+│   │   ├── warnings.json
+│   │   ├── validation.json
+│   │   └── validation-warnings.json
+│   ├── music/
+│   │   ├── music.json
+│   │   ├── probe.json
+│   │   └── warnings.json
+│   └── audiobooks/
+│       ├── audiobooks.json
+│       ├── probe.json
+│       └── warnings.json
+└── external/
+    ├── movies/
+    │   ├── movies.json
+    │   ├── probe.json
+    │   └── warnings.json
+    └── shows/
+        ├── shows.json
+        ├── probe.json
+        └── warnings.json
 ```
+
+Each drive's files are self-contained — the scanner never merges catalogs across drives, and a title that exists on two drives simply appears in both. Nothing cross-references the other drive's output.
 
 ---
 
@@ -156,6 +168,8 @@ A few things to know if you're building a website (or anything else) on top of t
 
 Warnings are grouped by their `type` (the same identifier as the matching `checks.warn_*` toggle in `rules/<type>.yaml`) under `by_type`. Each row in a bucket carries a `path` and human-readable `issue`; some rows also carry an `extension`. Buckets are sparse — only types that actually fired appear as keys. Inside each bucket, rows are sorted alphabetically by path; the outer keys are sorted alphabetically too, so the file diffs cleanly across runs.
 
+One bucket orders itself differently: `warn_duplicate_quality` groups by quality first — every UHD row, then HD, then SD — with paths sorted alphabetically inside each quality group. Duplicates of your best copies are the ones worth acting on first, so they read together at the top rather than scattered through an alphabetical list. Ordering is still fully deterministic, so the file diffs cleanly across runs either way.
+
 ```json
 {
   "generated": "2026-04-20T10:30:00+00:00",
@@ -178,61 +192,63 @@ Warnings are grouped by their `type` (the same identifier as the matching `check
 }
 ```
 
-The bucket key (a `warn_*` identifier) is the same string you use under `rules/<type>.yaml` `checks` and as a `types: [...]` entry in `ignored/<type>.yaml` — copy-pasteable across all three.
+The bucket key (a `warn_*` identifier) is the same string you use under `rules/<type>.yaml` `checks` and as a `types: [...]` entry in `ignored/<drive>/<type>.yaml` — copy-pasteable across all three.
 
 ---
 
 ## Warning tables
 
-Every warning has a per-type toggle in `rules/<type>.yaml` under `checks.warn_*`. All warnings ship enabled; set any toggle to `false` to silence one. To silence on specific paths only, use `ignored/<type>.yaml` instead — see [Configuration](CONFIG.md#ignoredtypeyaml).
+Every warning has a per-type toggle in `rules/<type>.yaml` under `checks.warn_*`. All warnings ship enabled; set any toggle to `false` to silence one. To silence on specific paths only, use `ignored/<drive>/<type>.yaml` instead — see [Configuration](CONFIG.md#ignoreddrivetypeyaml--silencing-specific-warnings).
 
 The tables below show the human-readable issue text you'll see in `warnings.json` alongside what triggered it. Warnings marked _(validate pass)_ only appear after `npm run validate:<type>`.
 
 ### Movies
 
-| Warning                                         | What it means                                                                                                                     |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Non-primary video file — may need re-encoding   | The file exists but isn't your preferred format (set via `primary_extension`)                                                     |
-| No recognized video files found in folder       | A movie folder has no video files (just sidecars or nothing at all)                                                               |
-| File name does not match Plex naming convention | The file won't be picked up by Plex correctly                                                                                     |
-| Empty edition tag                               | The file has `{edition-}` with nothing after the dash                                                                             |
-| Suspicious year                                 | The year is before 1888 or in the future — likely a typo                                                                          |
-| File title does not match folder title          | The file name's title doesn't match its parent folder                                                                             |
-| File year does not match folder year            | The file name's year doesn't match its parent folder                                                                              |
-| Duplicate edition                               | Two files in the same folder claim the same `{edition-Name}`                                                                      |
-| Movie exists in multiple qualities              | The same movie is in two quality folders (whitelist the combo via `acceptable_quality_combos`)                                    |
-| Loose video files                               | Video files sitting directly in a category folder, not inside a `Movie Title (YEAR)/` folder — these are NOT added to the catalog |
-| Unexpected subfolder in movie folder            | Subfolders found inside a `Movie Title (YEAR)/` folder — files inside them are NOT scanned                                        |
-| Unexpected file                                 | A non-video file that isn't a recognized Plex sidecar                                                                             |
-| Quality mismatch                                | The file's actual dimensions don't fit the bucket its category implies                                                            |
-| TMDB no match _(validate pass)_                 | TMDB found nothing matching the title + year — possible typo or an obscure film                                                   |
-| TMDB low confidence _(validate pass)_           | TMDB returned a match but the score was below the confidence threshold                                                            |
-| TMDB year mismatch _(validate pass)_            | TMDB's release year disagrees with your folder year                                                                               |
-| TMDB canonical title _(validate pass)_          | Your folder title differs from TMDB's filename-safe canonical — a rename suggestion                                               |
+| Warning                                         | What it means                                                                                                                                                                                                   |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Non-primary video file — may need re-encoding   | The file exists but isn't your preferred format (set via `primary_extension`)                                                                                                                                   |
+| No recognized video files found in folder       | A movie folder has no video files (just sidecars or nothing at all)                                                                                                                                             |
+| File name does not match Plex naming convention | The file won't be picked up by Plex correctly                                                                                                                                                                   |
+| Empty edition tag                               | The file has `{edition-}` with nothing after the dash                                                                                                                                                           |
+| Suspicious year                                 | The year is before 1888 or in the future — likely a typo                                                                                                                                                        |
+| File title does not match folder title          | The file name's title doesn't match its parent folder                                                                                                                                                           |
+| File year does not match folder year            | The file name's year doesn't match its parent folder                                                                                                                                                            |
+| Duplicate edition                               | Two files in the same folder claim the same `{edition-Name}`                                                                                                                                                    |
+| Duplicate _Q_ copies in _N_ folders             | The same movie is in two or more folders of the SAME quality tier (`HD/` + `Other HD/`) — redundant files. Not whitelistable                                                                                    |
+| Movie exists in multiple qualities              | The same movie is in two quality folders (whitelist the combo via `acceptable_quality_combos`)                                                                                                                  |
+| Loose video files                               | Video files sitting directly in a category folder, not inside a `Movie Title (YEAR)/` folder — these are NOT added to the catalog                                                                               |
+| Unexpected subfolder in movie folder            | Subfolders found inside a `Movie Title (YEAR)/` folder — files inside them are NOT scanned                                                                                                                      |
+| Unexpected file                                 | A non-video file that isn't a recognized Plex sidecar                                                                                                                                                           |
+| Quality mismatch                                | The file's actual dimensions don't fit the bucket its category implies                                                                                                                                          |
+| TMDB no match _(validate pass)_                 | TMDB found nothing matching the title + year, under either the strict or loose comparison — a real typo, a missing diacritic, or an obscure film                                                                |
+| TMDB low confidence _(validate pass)_           | TMDB returned a match but the score was below the confidence threshold                                                                                                                                          |
+| TMDB year mismatch _(validate pass)_            | TMDB's release year disagrees with your folder year                                                                                                                                                             |
+| TMDB canonical title _(validate pass)_          | Your folder title differs byte-for-byte from TMDB's filename-safe canonical — a rename suggestion. Expected whenever a title matched via the loose tier (`Ghostbusters - Afterlife` → `Ghostbusters Afterlife`) |
 
 ### Shows
 
-| Warning                                           | What it means                                                                                                                       |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Non-primary video file — may need re-encoding     | The file exists but isn't your preferred format                                                                                     |
-| No recognized video files found in season folder  | A season folder has no video files                                                                                                  |
-| Show folder does not match Plex naming convention | Expected: `Show Title (YEAR)`                                                                                                       |
-| Season folder does not match expected format      | Expected: `Season 01`. Special-season names like `Specials` are whitelisted in `ignored_season_names`                               |
-| File name does not match Plex naming convention   | Expected: `Show Title (YEAR) - S01E01 - Episode Title` (episode title optional)                                                     |
-| File show/year does not match show folder         | The episode file's show name or year doesn't match its parent show folder                                                           |
-| File season does not match season folder          | The episode file is in the wrong season folder                                                                                      |
-| Potential missing episodes                        | A gap was detected in episode numbers within a season                                                                               |
-| Missing episode titles                            | Episodes in this season match Plex's naming convention but omit the trailing `- Episode Title` portion. Summarised once per season. |
-| Loose video files                                 | Episode files directly in a category folder or in a show folder (no `Season XX` wrapper) — NOT added to the catalog                 |
-| Unexpected subfolder in season folder             | Subfolders found inside a `Season XX/` folder — files inside them are NOT scanned                                                   |
-| Unexpected file                                   | A non-video file that isn't a recognized Plex sidecar                                                                               |
-| Quality mismatch                                  | The file's actual dimensions don't fit the bucket its category implies                                                              |
-| Season exists in multiple qualities               | A single season has copies in two quality folders (whitelist via `acceptable_quality_combos`)                                       |
-| TMDB no match _(validate pass)_                   | TMDB found nothing matching the title + year                                                                                        |
-| TMDB low confidence _(validate pass)_             | TMDB match score below the confidence threshold                                                                                     |
-| TMDB episode count _(validate pass)_              | Your local season has fewer episodes than TMDB lists                                                                                |
-| TMDB episode title mismatch _(validate pass)_     | An episode's filename title doesn't match TMDB's title for that episode. Strict, filename-safe comparison.                          |
-| TMDB canonical title _(validate pass)_            | Your folder title differs from TMDB's filename-safe canonical — a rename suggestion                                                 |
+| Warning                                           | What it means                                                                                                                                           |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Non-primary video file — may need re-encoding     | The file exists but isn't your preferred format                                                                                                         |
+| No recognized video files found in season folder  | A season folder has no video files                                                                                                                      |
+| Show folder does not match Plex naming convention | Expected: `Show Title (YEAR)`                                                                                                                           |
+| Season folder does not match expected format      | Expected: `Season 01`. Special-season names like `Specials` are whitelisted in `ignored_season_names`                                                   |
+| File name does not match Plex naming convention   | Expected: `Show Title (YEAR) - S01E01 - Episode Title` (episode title optional)                                                                         |
+| File show/year does not match show folder         | The episode file's show name or year doesn't match its parent show folder                                                                               |
+| File season does not match season folder          | The episode file is in the wrong season folder                                                                                                          |
+| Potential missing episodes                        | A gap was detected in episode numbers within a season                                                                                                   |
+| Missing episode titles                            | Episodes in this season match Plex's naming convention but omit the trailing `- Episode Title` portion. Summarised once per season.                     |
+| Loose video files                                 | Episode files directly in a category folder or in a show folder (no `Season XX` wrapper) — NOT added to the catalog                                     |
+| Unexpected subfolder in season folder             | Subfolders found inside a `Season XX/` folder — files inside them are NOT scanned                                                                       |
+| Unexpected file                                   | A non-video file that isn't a recognized Plex sidecar                                                                                                   |
+| Quality mismatch                                  | The file's actual dimensions don't fit the bucket its category implies                                                                                  |
+| Season has duplicate _Q_ copies in _N_ folders    | A single season is in two or more folders of the SAME quality tier (`HD/` + `Other HD/`) — redundant files. Not whitelistable                           |
+| Season exists in multiple qualities               | A single season has copies in two quality folders (whitelist via `acceptable_quality_combos`)                                                           |
+| TMDB no match _(validate pass)_                   | TMDB found nothing matching the title + year, under either the strict or loose comparison                                                               |
+| TMDB low confidence _(validate pass)_             | TMDB match score below the confidence threshold                                                                                                         |
+| TMDB episode count _(validate pass)_              | Your local season has fewer episodes than TMDB lists                                                                                                    |
+| TMDB episode title mismatch _(validate pass)_     | An episode's filename title doesn't match TMDB's title for that episode. Strict, filename-safe comparison.                                              |
+| TMDB canonical title _(validate pass)_            | Your folder title differs byte-for-byte from TMDB's filename-safe canonical — a rename suggestion. Expected whenever a title matched via the loose tier |
 
 ### Music
 

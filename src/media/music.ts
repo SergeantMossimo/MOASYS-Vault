@@ -307,7 +307,7 @@ export function createMusicModule(
                 'warn_non_primary',
                 path.join(albumRel, f.name),
                 `${formatPrimaryExts(rules.primary_extension)} audio file — may need re-encoding`,
-                ext
+                { extension: ext }
               )
             }
           }

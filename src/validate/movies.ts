@@ -18,7 +18,12 @@ import { MovieOutput, WarningCollector } from '../core/types'
 import { MoviesRules } from '../core/rules/movies'
 
 import { JsonCache, searchKey } from './cache'
-import { normalizeTitle, parseYear, stripFilenameIllegalChars } from './helpers'
+import {
+  normalizeTitle,
+  normalizeTitleLoose,
+  parseYear,
+  stripFilenameIllegalChars,
+} from './helpers'
 import { TmdbClient } from './tmdb'
 import { MovieValidation, ResolvedSearch, TmdbMovieDetails, TmdbMovieSearchResult } from './types'
 
@@ -32,7 +37,14 @@ import { MovieValidation, ResolvedSearch, TmdbMovieDetails, TmdbMovieSearchResul
  *
  * ── Scoring components ─────────────────────────
  * Title match (one of, in priority order):
- *   100  exact match on either `title` or `original_title` after normalization
+ *   100  exact match on either `title` or `original_title` after strict
+ *        normalization (see `normalizeTitle`)
+ *    90  exact match under the LOOSE normalization (see `normalizeTitleLoose`) —
+ *        bridges the ways a filename-illegal character gets rendered in a folder
+ *        name: "Ghostbusters - Afterlife" vs TMDB's "Ghostbusters: Afterlife",
+ *        "Pain And Gain" vs "Pain & Gain", "Good Morning Vietnam" vs
+ *        "Good Morning, Vietnam". Weighted so a loose hit always outranks a
+ *        prefix hit (60 + 50 = 110) but never beats a strict one.
  *    60  one side is a prefix of the other followed by a space (handles missing
  *        subtitles like "Star Wars" vs "Star Wars: A New Hope")
  *    30  substring containment in either direction (last-resort fuzzy)
@@ -46,8 +58,9 @@ import { MovieValidation, ResolvedSearch, TmdbMovieDetails, TmdbMovieSearchResul
  * ── Confidence thresholds ──────────────────────
  *   high   ≥ 150  → only achievable as 100 (title exact) + 50 (year exact).
  *                   Locks in cases where both fields agree.
- *   medium ≥ 110  → 100 + 30 (title exact, year off by 1) or
- *                   60 + 50 (prefix match, year exact).
+ *   medium ≥ 110  → 100 + 30 (title exact, year off by 1),
+ *                   90 + 50 (loose title match, year exact — matched, but not
+ *                   byte-identical) or 60 + 50 (prefix match, year exact).
  *   low    ≥ 60   → anything else with at least a partial title match.
  *   none   < 60   → no plausible candidate; we drop the ID entirely so the
  *                   warning isn't misleading.
@@ -66,6 +79,7 @@ function pickBestMovieMatch(
   }
 
   const ourTitle = normalizeTitle(localTitle)
+  const ourLooseTitle = normalizeTitleLoose(localTitle)
   let bestScore = 0
   let bestId: number | null = null
   const candidateIds: number[] = []
@@ -92,6 +106,11 @@ function pickBestMovieMatch(
     // native name (e.g. "Amélie" vs the English-localized version).
     if (theirTitle === ourTitle || theirOrigTitle === ourTitle) {
       score += 100
+    } else if (
+      normalizeTitleLoose(c.title) === ourLooseTitle ||
+      normalizeTitleLoose(c.original_title) === ourLooseTitle
+    ) {
+      score += 90
     } else if (theirTitle.startsWith(ourTitle + ' ') || ourTitle.startsWith(theirTitle + ' ')) {
       score += 60
     } else if (theirTitle.includes(ourTitle) || ourTitle.includes(theirTitle)) {
@@ -146,7 +165,14 @@ export async function validateMovies(
     const movie = movies[i]!
     const sKey = searchKey('movie', movie.title, movie.year)
 
-    let resolved = searchCache.get(sKey)
+    // A cached verdict that produced a warning is never final. TMDB's search
+    // index changes over time — "Face/Off" simply wasn't returned for the query
+    // "FaceOff" when this library was first validated, and stayed a permanent
+    // false no-match because nothing ever re-asked. Confident matches stay
+    // cached, so warm runs are still fast; only the warning set is re-queried.
+    const cached = searchCache.get(sKey)
+    let resolved: ResolvedSearch | undefined =
+      cached && cached.confidence !== 'none' && cached.confidence !== 'low' ? cached : undefined
     if (resolved) {
       cachedCount++
     } else {

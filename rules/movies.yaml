@@ -80,6 +80,11 @@ quality_thresholds: []
 # Only used when categories are organized by quality (shape A above).
 # Lists quality sets a single movie may legitimately span without firing
 # warn_multi_quality. Default mirrors the common UHD master + HD downscale.
+#
+# These describe which quality TIERS may coexist, never how many copies may
+# sit inside one tier — so a combo can't silence warn_duplicate_quality. A
+# movie in UHD/ + HD/ + Other HD/ still resolves to the tier set {UHD, HD}
+# and matches [UHD, HD], but the two HD-tier copies are reported regardless.
 acceptable_quality_combos:
   - [UHD, HD]
 
@@ -96,6 +101,7 @@ checks:
   warn_title_mismatch: true       # File title vs folder title
   warn_year_mismatch: true        # File year vs folder year
   warn_duplicate_edition: true    # Two files in same folder claim same edition
+  warn_duplicate_quality: true    # Movie in two folders of the SAME quality tier (HD + Other HD) — not whitelistable
   warn_multi_quality: true        # Movie in multiple quality folders (unless in acceptable_quality_combos)
   warn_quality_mismatch: true     # File dimensions don't fit its category's quality bucket
   warn_loose_files: true          # Video files at unexpected nesting

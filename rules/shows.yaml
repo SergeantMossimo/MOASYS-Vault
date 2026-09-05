@@ -82,6 +82,11 @@ quality_thresholds: []
 # Lists quality sets a single season may legitimately span without firing
 # warn_multi_quality. Scope is per-season — keeping S01 in HD and S02 in UHD
 # never fires; only S01 existing in BOTH UHD and HD does.
+#
+# These describe which quality TIERS may coexist, never how many copies may
+# sit inside one tier — so a combo can't silence warn_duplicate_quality. A
+# season in UHD/ + HD/ + Other HD/ still resolves to the tier set {UHD, HD}
+# and matches [UHD, HD], but the two HD-tier copies are reported regardless.
 acceptable_quality_combos:
   - [UHD, HD]
 
@@ -98,6 +103,7 @@ checks:
   warn_season_mismatch: true                    # File's season number vs parent season folder
   warn_episode_gaps: true                       # Gap detected in episode numbers
   warn_quality_mismatch: true                   # File dimensions don't fit its category's quality bucket
+  warn_duplicate_quality: true                  # A season in two folders of the SAME quality tier (HD + Other HD) — not whitelistable
   warn_multi_quality: true                      # A single season exists in multiple distinct qualities
   warn_loose_files: true                        # Video files at unexpected nesting
   warn_extra_subfolders: true                   # Unexpected subfolders inside a season folder

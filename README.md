@@ -58,6 +58,14 @@ npm run validate:shows
 npm run validate:all
 ```
 
+If a media type spans several drives, add the drive's name from `config.json`. Leaving it off uses the first root configured for that type:
+
+```bash
+npm run movies external
+npm run scan:all external
+npm run validate:movies external
+```
+
 ---
 
 ## Supported sources
@@ -93,12 +101,13 @@ npm install
 
 ```bash
 # 1. Tell the scanner where your library lives
-#    Edit config.json — set root_path for each media type you have
+#    Edit config.json — list a named root per media type you have.
+#    A type that spans drives gets one entry per drive.
 
 # 2. First scan — see the "Estimated scan times" table below
 npm run scan:all
 
-# 3. Open output/<type>/warnings.json, fix what you can, re-scan
+# 3. Open output/<drive>/<type>/warnings.json, fix what you can, re-scan
 #    Re-scans are fast because only new/changed files are re-checked.
 ```
 
@@ -121,12 +130,12 @@ For the detailed runbook, see [Scans](docs/SCANS.md).
 
 ## How it works
 
-When you run `npm run scan:all`, for each media type the scanner does this in order:
+When you run `npm run scan:all`, for each media type the scanner does this in order against one drive:
 
 1. **Inspect every primary file.** Reads video dimensions, audio codec/bitrate/sample rate, and (for music) the artist/album/track info embedded in the file. Results are cached, so subsequent runs skip unchanged files.
 2. **Walk the folder tree.** Parses every folder and file name against Plex naming conventions to spot mismatches and missing items.
 3. **Build the catalog.** Combines the file inspection with the folder/file structure to produce per-type catalogs — each entry lists title, year, where every copy lives, and (if your library is organized by quality) the quality of each copy.
-4. **Write three files per type to `output/<type>/`**:
+4. **Write three files to `output/<drive>/<type>/`**:
    - `<type>.json` — your clean catalog
    - `probe.json` — the rich per-file inspection data
    - `warnings.json` — every hygiene issue worth your attention
@@ -139,16 +148,18 @@ Detailed runbook and re-run scenarios in [Scans](docs/SCANS.md).
 
 ## Output
 
-Each media type writes its files to its own subfolder inside `output/`:
+Each drive/media-type pair writes its files to its own subfolder inside `output/`:
 
 ```text
-output/<type>/
+output/<drive>/<type>/
 ├── <type>.json
 ├── probe.json
 ├── warnings.json
 ├── validation.json
 └── validation-warnings.json
 ```
+
+`<drive>` is the lowercased `name` of the root from `config.json` — so a two-drive movies library produces `output/server/movies/` and `output/external/movies/`. Drives are never merged.
 
 - **`<type>.json`** — your catalog. Title, year, quality, where each copy lives. This is the file a website or other tool would read.
 - **`probe.json`** — the rich detail behind the catalog. Codecs, bitrates, frame rates, sample rates, and embedded music tags. Useful when you want more than the catalog gives you, or for debugging.
@@ -174,12 +185,12 @@ MOASYS-Vault/
 
 For day-to-day use, you'll only touch the top few:
 
-- **`config.json`** — the paths to your library, one per media type. You always edit this.
+- **`config.json`** — the paths to your library: a list of named roots per media type, one per drive. You always edit this.
 - **`.secrets.json`** — your TMDB API key. Only needed if you want to run validation. Gitignored.
-- **`rules/`** — per-type rules. Default committed values; override in `rules/<type>.local.yaml` (gitignored) for your library.
-- **`ignored/`** — per-type warning silencers. Drop paths in `ignored/<type>.yaml` to suppress warnings you don't want to act on. Each type ships with a commented `.yaml.example` reference.
-- **`output/`** — generated catalogs + warnings, written every run. Gitignored.
-- **`cache/`** — file-inspection and TMDB caches. Gitignored. Safe to delete a file under it to force a fresh inspection or fresh TMDB lookup.
+- **`rules/`** — per-type rules. Default committed values; override in `rules/<type>.local.yaml` (gitignored) for your library. Rules are per type, shared across drives.
+- **`ignored/`** — per-drive, per-type warning silencers. Drop paths in `ignored/<drive>/<type>.yaml` to suppress warnings you don't want to act on. Each type ships with a commented `.yaml.example` reference at the top level.
+- **`output/`** — generated catalogs + warnings, written every run under `output/<drive>/<type>/`. Gitignored.
+- **`cache/`** — file-inspection caches (`cache/<drive>/<type>-probe.json`) and TMDB caches (`cache/tmdb-*.json`, shared across drives). Gitignored. Safe to delete a file under it to force a fresh inspection or fresh TMDB lookup.
 
 The rest is for contributors:
 

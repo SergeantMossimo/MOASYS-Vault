@@ -16,7 +16,12 @@ import { EpisodeOutput, ShowOutput, WarningCollector } from '../core/types'
 import { ShowsRules } from '../core/rules/shows'
 
 import { JsonCache, searchKey } from './cache'
-import { normalizeTitle, parseYear, stripFilenameIllegalChars } from './helpers'
+import {
+  normalizeTitle,
+  normalizeTitleLoose,
+  parseYear,
+  stripFilenameIllegalChars,
+} from './helpers'
 import { TmdbClient } from './tmdb'
 import {
   ShowValidation,
@@ -50,6 +55,7 @@ function pickBestShowMatch(
   }
 
   const ourTitle = normalizeTitle(localTitle)
+  const ourLooseTitle = normalizeTitleLoose(localTitle)
   let bestScore = 0
   let bestId: number | null = null
   const candidateIds: number[] = []
@@ -66,6 +72,11 @@ function pickBestShowMatch(
     let score = 0
     if (theirTitle === ourTitle || theirOrigTitle === ourTitle) {
       score += 100
+    } else if (
+      normalizeTitleLoose(c.name) === ourLooseTitle ||
+      normalizeTitleLoose(c.original_name) === ourLooseTitle
+    ) {
+      score += 90
     } else if (theirTitle.startsWith(ourTitle + ' ') || ourTitle.startsWith(theirTitle + ' ')) {
       score += 60
     } else if (theirTitle.includes(ourTitle) || ourTitle.includes(theirTitle)) {
@@ -239,7 +250,11 @@ export async function validateShows(
     const show = shows[i]!
     const sKey = searchKey('show', show.title, show.year)
 
-    let resolved = searchCache.get(sKey)
+    // Cached no-match / low-confidence verdicts are always re-queried — see
+    // the matching comment in validate/movies.ts for the rationale.
+    const cached = searchCache.get(sKey)
+    let resolved: ResolvedSearch | undefined =
+      cached && cached.confidence !== 'none' && cached.confidence !== 'low' ? cached : undefined
     if (resolved) {
       cachedCount++
     } else {

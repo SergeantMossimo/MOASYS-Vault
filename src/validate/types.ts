@@ -209,5 +209,12 @@ export interface ShowValidation {
  *       fixes false `warn_tmdb_no_match` on films whose folder year differs
  *       from TMDB's primary_release_date year (web-series origin, bundled
  *       re-releases, etc.)
+ *
+ * NOT bumped for the loose-normalization tier (`normalizeTitleLoose`), because
+ * the validators stopped trusting cached `none` / `low` verdicts at the same
+ * time — every entry the new tier could change is re-queried on the next run
+ * anyway. A bump would have discarded ~4,900 good `high` entries to re-resolve
+ * the ~600 that mattered. Bump this if a future change can alter a `high` or
+ * `medium` verdict, which nothing re-queries.
  */
 export const SEARCH_CACHE_VERSION = 4

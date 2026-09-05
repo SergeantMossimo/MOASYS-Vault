@@ -13,6 +13,9 @@
  *     a missing one.
  *   - `finalizeVersions` — dedup then sort, the combined form used by
  *     every media module's serialize().
+ *   - `groupCategoriesByQuality` — bucket the distinct categories by quality
+ *     tier, the shared basis for the movies/shows `warn_multi_quality` and
+ *     `warn_duplicate_quality` postScan checks.
  */
 
 import { Version } from './types'
@@ -68,6 +71,35 @@ export function distinctCategories(versions: Version[]): string[] {
     if (seen.has(v.category)) continue
     seen.add(v.category)
     out.push(v.category)
+  }
+  return out
+}
+
+/**
+ * Group the distinct categories in a versions list by the quality tier each
+ * one maps to (per `buildCategoryQualityMap` in core/rules/helpers.ts).
+ * Categories with no detected quality map to their own name, so a general-tag
+ * library gets one single-entry bucket per tag and never looks duplicated.
+ *
+ * The key insight both quality checks rely on: the map's *keys* are the set of
+ * distinct qualities (what `warn_multi_quality` compares against
+ * `acceptable_quality_combos`), while a bucket holding more than one category
+ * means the same item is stored twice at the same quality — a genuine
+ * duplicate that collapsing to a Set of qualities would hide.
+ *
+ * Category order within each bucket follows `distinctCategories` insertion
+ * order, which reflects the order the scanner walked the category folders.
+ */
+export function groupCategoriesByQuality(
+  versions: Version[],
+  categoryToQuality: Map<string, string>
+): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  for (const category of distinctCategories(versions)) {
+    const quality = categoryToQuality.get(category) ?? category
+    const bucket = out.get(quality)
+    if (bucket) bucket.push(category)
+    else out.set(quality, [category])
   }
   return out
 }

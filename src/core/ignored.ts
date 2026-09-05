@@ -1,12 +1,19 @@
 /**
  * core/ignored.ts
  * ---------------
- * Loader + matcher for `ignored/<type>.yaml` — a per-type, gitignored file
- * that lets the user persistently silence warnings on specific paths.
+ * Loader + matcher for `ignored/<drive>/<type>.yaml` — a per-drive, per-type
+ * gitignored file that lets the user persistently silence warnings on
+ * specific paths.
+ *
+ * Scoped per drive because warning paths are relative to that drive's
+ * `root_path`, so the same relative path can mean different files on
+ * different drives. `ignored/server/movies.yaml` only affects runs against
+ * the "Server" root.
  *
  * Lives in its own `ignored/` folder rather than `rules/` because these
  * aren't rules; they're per-library exceptions. Each type also ships a
- * committed `ignored/<type>.yaml.example` with commented usage patterns.
+ * committed `ignored/<type>.yaml.example` at the top level with commented
+ * usage patterns — copy one into `ignored/<drive>/<type>.yaml` to start.
  *
  * Use case: the library has shows with genuinely incomplete seasons (web
  * extras that never aired, content that was never released on the format,
@@ -68,8 +75,12 @@ export interface IgnoredEntry {
 // ─────────────────────────────────────────────
 
 /**
- * Load and validate `ignored/<mediaType>.yaml`. Returns the normalized list
- * of entries, or an empty list when the file doesn't exist.
+ * Load and validate `ignored/<driveSlug>/<mediaType>.yaml`. Returns the
+ * normalized list of entries, or an empty list when the file doesn't exist —
+ * so a drive with nothing to silence needs no file at all.
+ *
+ * `driveSlug` is the lowercased root name from config.json (see
+ * `driveSlug()` in core/config.ts).
  *
  * String entries are normalized to `{path, types: null}` so the matcher only
  * needs to handle one shape.
@@ -77,8 +88,12 @@ export interface IgnoredEntry {
  * On YAML parse error or schema validation failure: prints a clear message
  * and exits — same fail-fast pattern as the rules loader.
  */
-export function loadIgnoredPaths(projectRoot: string, mediaType: string): IgnoredEntry[] {
-  const file = path.join(projectRoot, 'ignored', `${mediaType}.yaml`)
+export function loadIgnoredPaths(
+  projectRoot: string,
+  driveSlug: string,
+  mediaType: string
+): IgnoredEntry[] {
+  const file = path.join(projectRoot, 'ignored', driveSlug, `${mediaType}.yaml`)
   if (!fs.existsSync(file)) return []
 
   let raw: unknown

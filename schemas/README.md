@@ -1,19 +1,19 @@
 # MOASYS-Vault — Output schemas
 
-JSON Schema (Draft 2020-12) definitions for everything the scanner writes under `output/<type>/`. Useful when you're building a downstream consumer (e.g. the personal website) and want IDE autocomplete or runtime validation.
+JSON Schema (Draft 2020-12) definitions for everything the scanner writes under `output/<drive>/<type>/`. Useful when you're building a downstream consumer (e.g. the personal website) and want IDE autocomplete or runtime validation.
 
 ## Files
 
-| Schema                                           | Describes                                                                                |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| [common.json](common.json)                       | Shared `Version` definition referenced by all four catalog schemas.                      |
-| [movies.json](movies.json)                       | `output/movies/movies.json` — your movies catalog.                                       |
-| [shows.json](shows.json)                         | `output/shows/shows.json` — your shows catalog with seasons + episodes.                  |
-| [music.json](music.json)                         | `output/music/music.json` — your music catalog (artists → albums).                       |
-| [audiobooks.json](audiobooks.json)               | `output/audiobooks/audiobooks.json` — your audiobooks catalog.                           |
-| [warnings.json](warnings.json)                   | `output/<type>/warnings.json` and `output/<type>/validation-warnings.json` (same shape). |
-| [validation-movies.json](validation-movies.json) | `output/movies/validation.json` — TMDB cross-check results for movies.                   |
-| [validation-shows.json](validation-shows.json)   | `output/shows/validation.json` — TMDB cross-check results for shows.                     |
+| Schema                                           | Describes                                                                              |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| [common.json](common.json)                       | Shared `Version` definition referenced by all four catalog schemas.                    |
+| [movies.json](movies.json)                       | `output/<drive>/movies/movies.json` — your movies catalog.                             |
+| [shows.json](shows.json)                         | `output/<drive>/shows/shows.json` — your shows catalog with seasons + episodes.        |
+| [music.json](music.json)                         | `output/<drive>/music/music.json` — your music catalog (artists → albums).             |
+| [audiobooks.json](audiobooks.json)               | `output/<drive>/audiobooks/audiobooks.json` — your audiobooks catalog.                 |
+| [warnings.json](warnings.json)                   | `output/<drive>/<type>/warnings.json` and `.../validation-warnings.json` (same shape). |
+| [validation-movies.json](validation-movies.json) | `output/<drive>/movies/validation.json` — TMDB cross-check results for movies.         |
+| [validation-shows.json](validation-shows.json)   | `output/<drive>/shows/validation.json` — TMDB cross-check results for shows.           |
 
 ## Using these
 

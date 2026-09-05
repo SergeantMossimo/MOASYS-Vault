@@ -3,13 +3,18 @@
  * ------------------
  * CLI entry point for the TMDB validation pass.
  *
- *   npm run validate:movies
+ *   npm run validate:movies             # first configured movies root
+ *   npm run validate:movies external    # the root named "External"
  *   npm run validate:shows
  *   npm run validate:all
  *
- * Per type, reads from the scan output (movies.json / shows.json) and writes:
- *   output/<type>/validation.json           ← per-record TMDB resolution + alts
- *   output/<type>/validation-warnings.json  ← low-confidence and mismatch warnings
+ * Validation runs against one drive at a time, matching the scan pass — it
+ * reads that drive's scan output and writes alongside it:
+ *   output/<drive>/<type>/validation.json           ← per-record TMDB resolution + alts
+ *   output/<drive>/<type>/validation-warnings.json  ← low-confidence and mismatch warnings
+ *
+ * The TMDB caches stay un-sharded at the top of cache/ — they're keyed by
+ * title/year, not by path, so every drive benefits from the same lookups:
  *   cache/tmdb-search.json                  ← shared search-lookup cache
  *   cache/tmdb-movies.json                  ← movie-details cache
  *   cache/tmdb-shows.json                   ← show-details cache
@@ -21,10 +26,23 @@
 import fs from 'fs'
 import path from 'path'
 
-import { MovieOutput, ShowOutput, WarningCollector } from '../core/types'
+import {
+  AppConfig,
+  MediaRootConfig,
+  MovieOutput,
+  ShowOutput,
+  WarningCollector,
+} from '../core/types'
+import { driveSlug, loadConfig } from '../core/config'
 import { loadRules } from '../core/rules/loader'
 import { loadIgnoredPaths } from '../core/ignored'
-import { parseRunnerArgs, writeJsonOutput, writeWarnings } from '../core/runner-shared'
+import {
+  parseRunnerArgs,
+  resolveRoot,
+  rootNames,
+  writeJsonOutput,
+  writeWarnings,
+} from '../core/runner-shared'
 
 import { MoviesRulesSchema, defaultMoviesRules } from '../core/rules/movies'
 import { ShowsRulesSchema, defaultShowsRules } from '../core/rules/shows'
@@ -51,43 +69,48 @@ const SCRIPT_DIR = path.join(__dirname, '..', '..')
 const OUTPUT_DIR = path.join(SCRIPT_DIR, 'output')
 const CACHE_DIR = path.join(SCRIPT_DIR, 'cache')
 
+// Needed to resolve the drive name to a configured root. Validation never
+// touches root_path itself — it reads the scan output for that root — but the
+// root list is what makes a name like "external" meaningful.
+const CONFIG: AppConfig = loadConfig(SCRIPT_DIR)
+
 // ─────────────────────────────────────────────
 // Scan-output readers
 // ─────────────────────────────────────────────
 
 /**
- * Read the scan-generated movies.json. Fails clearly if the file is missing —
- * validation depends on it (we don't re-scan inside the validator).
+ * Read one drive's scan output. Fails clearly if the file is missing —
+ * validation depends on it (we don't re-scan inside the validator), and the
+ * fix is to run the scan for that same drive first.
  */
-function readMoviesScan(): MovieOutput[] {
-  const p = path.join(OUTPUT_DIR, 'movies', 'movies.json')
+function readScan<T>(slug: string, mediaType: 'movies' | 'shows', driveName: string): T[] {
+  const p = path.join(OUTPUT_DIR, slug, mediaType, `${mediaType}.json`)
   if (!fs.existsSync(p)) {
     console.error(`\n  Error: ${p} not found.`)
-    console.error('    Run `npm run movies` first to generate it.')
+    console.error(
+      `    Run \`npm run ${mediaType} ${driveName.toLowerCase()}\` first to generate it.`
+    )
     process.exit(1)
   }
-  return JSON.parse(fs.readFileSync(p, 'utf-8')) as MovieOutput[]
-}
-
-function readShowsScan(): ShowOutput[] {
-  const p = path.join(OUTPUT_DIR, 'shows', 'shows.json')
-  if (!fs.existsSync(p)) {
-    console.error(`\n  Error: ${p} not found.`)
-    console.error('    Run `npm run shows` first to generate it.')
-    process.exit(1)
-  }
-  return JSON.parse(fs.readFileSync(p, 'utf-8')) as ShowOutput[]
+  return JSON.parse(fs.readFileSync(p, 'utf-8')) as T[]
 }
 
 // ─────────────────────────────────────────────
 // Per-type runners
 // ─────────────────────────────────────────────
 
-async function runMovies(client: TmdbClient, refreshOlderThanDays: number): Promise<void> {
+async function runMovies(
+  client: TmdbClient,
+  refreshOlderThanDays: number,
+  root: MediaRootConfig
+): Promise<void> {
+  const slug = driveSlug(root.name)
+
   console.log(`\n${'─'.repeat(50)}`)
   console.log(`  MOASYS-Vault — Validate Movies`)
   console.log(`  ${new Date().toLocaleString()}`)
   console.log('─'.repeat(50))
+  console.log(`\n  Drive: ${root.name}`)
   console.log()
 
   const rules = loadRules({
@@ -97,8 +120,8 @@ async function runMovies(client: TmdbClient, refreshOlderThanDays: number): Prom
     projectRoot: SCRIPT_DIR,
   })
 
-  const movies = readMoviesScan()
-  console.log(`    [INPUT] ${movies.length} movies from output/movies/movies.json`)
+  const movies = readScan<MovieOutput>(slug, 'movies', root.name)
+  console.log(`    [INPUT] ${movies.length} movies from output/${slug}/movies/movies.json`)
 
   const searchCache = new JsonCache<ResolvedSearch>(
     path.join(CACHE_DIR, 'tmdb-search.json'),
@@ -118,7 +141,7 @@ async function runMovies(client: TmdbClient, refreshOlderThanDays: number): Prom
     `    [CACHE] ${searchCache.size()} search entries, ${detailsCache.size()} movie-details entries${prunedSummary}`
   )
 
-  const warnings = new WarningCollector(loadIgnoredPaths(SCRIPT_DIR, 'movies'))
+  const warnings = new WarningCollector(loadIgnoredPaths(SCRIPT_DIR, slug, 'movies'))
 
   const data = await validateMovies(
     movies,
@@ -135,7 +158,7 @@ async function runMovies(client: TmdbClient, refreshOlderThanDays: number): Prom
   )
 
   console.log('\n  Writing output...')
-  const outDir = path.join(OUTPUT_DIR, 'movies')
+  const outDir = path.join(OUTPUT_DIR, slug, 'movies')
   writeJsonOutput(path.join(outDir, 'validation.json'), data)
   writeWarnings(path.join(outDir, 'validation-warnings.json'), warnings)
 
@@ -153,15 +176,22 @@ async function runMovies(client: TmdbClient, refreshOlderThanDays: number): Prom
       .map(({ type, count }) => `${type} (${count})`)
       .join(', ')
     console.log(`    ${breakdown}`)
-    console.log(`  → Review output/movies/validation-warnings.json`)
+    console.log(`  → Review output/${slug}/movies/validation-warnings.json`)
   }
 }
 
-async function runShows(client: TmdbClient, refreshOlderThanDays: number): Promise<void> {
+async function runShows(
+  client: TmdbClient,
+  refreshOlderThanDays: number,
+  root: MediaRootConfig
+): Promise<void> {
+  const slug = driveSlug(root.name)
+
   console.log(`\n${'─'.repeat(50)}`)
   console.log(`  MOASYS-Vault — Validate Shows`)
   console.log(`  ${new Date().toLocaleString()}`)
   console.log('─'.repeat(50))
+  console.log(`\n  Drive: ${root.name}`)
   console.log()
 
   const rules = loadRules({
@@ -171,8 +201,8 @@ async function runShows(client: TmdbClient, refreshOlderThanDays: number): Promi
     projectRoot: SCRIPT_DIR,
   })
 
-  const shows = readShowsScan()
-  console.log(`    [INPUT] ${shows.length} shows from output/shows/shows.json`)
+  const shows = readScan<ShowOutput>(slug, 'shows', root.name)
+  console.log(`    [INPUT] ${shows.length} shows from output/${slug}/shows/shows.json`)
 
   const searchCache = new JsonCache<ResolvedSearch>(
     path.join(CACHE_DIR, 'tmdb-search.json'),
@@ -197,7 +227,7 @@ async function runShows(client: TmdbClient, refreshOlderThanDays: number): Promi
     `    [CACHE] ${searchCache.size()} search entries, ${detailsCache.size()} show-details entries, ${seasonsCache.size()} season-details entries${prunedSummary}`
   )
 
-  const warnings = new WarningCollector(loadIgnoredPaths(SCRIPT_DIR, 'shows'))
+  const warnings = new WarningCollector(loadIgnoredPaths(SCRIPT_DIR, slug, 'shows'))
 
   const data = await validateShows(
     shows,
@@ -215,7 +245,7 @@ async function runShows(client: TmdbClient, refreshOlderThanDays: number): Promi
   )
 
   console.log('\n  Writing output...')
-  const outDir = path.join(OUTPUT_DIR, 'shows')
+  const outDir = path.join(OUTPUT_DIR, slug, 'shows')
   writeJsonOutput(path.join(outDir, 'validation.json'), data)
   writeWarnings(path.join(outDir, 'validation-warnings.json'), warnings)
 
@@ -234,7 +264,7 @@ async function runShows(client: TmdbClient, refreshOlderThanDays: number): Promi
       .map(({ type, count }) => `${type} (${count})`)
       .join(', ')
     console.log(`    ${breakdown}`)
-    console.log(`  → Review output/shows/validation-warnings.json`)
+    console.log(`  → Review output/${slug}/shows/validation-warnings.json`)
   }
 }
 
@@ -247,14 +277,22 @@ function printHelp(): void {
   MOASYS-Vault — TMDB validation
 
   Usage:
-    npm run validate:movies     Validate movies against TMDB
-    npm run validate:shows      Validate shows against TMDB (incl. season episode counts)
-    npm run validate:all        Validate both
+    npm run validate:movies [drive]   Validate movies against TMDB
+    npm run validate:shows [drive]    Validate shows against TMDB (incl. season episode counts)
+    npm run validate:all [drive]      Validate both
+
+  [drive] names a root from config.json. Omit it to use the first root
+  configured for that type. Reads output/<drive>/<type>/<type>.json and
+  writes validation.json alongside it, so run the matching scan first.
 
   Flags:
     --refresh-older-than=Nd     Re-fetch any cache entries older than N days
                                 (e.g. 30 or 30d). Without this flag, all
                                 cached entries are used regardless of age.
+
+  Examples:
+    npm run validate:movies
+    npm run validate:movies external
 
   Requires .secrets.json with a TMDB API v3 key. See .secrets.json.example.
   `)
@@ -286,10 +324,34 @@ function extractRefreshOlderThanFlag(): number {
 // Only movies and shows have a validate pass — music and audiobooks aren't
 // in TMDB. This is intentional, not a TODO.
 const VALIDATE_TYPES = ['movies', 'shows'] as const
+type ValidateType = (typeof VALIDATE_TYPES)[number]
+
+/**
+ * Resolve the drive name against a type's configured roots. Mirrors the scan
+ * runner: `--all` skips a type that has no such root, a single-type run
+ * treats it as an error.
+ */
+function rootFor(
+  mediaType: ValidateType,
+  driveName: string | undefined,
+  acrossAllTypes: boolean
+): MediaRootConfig | null {
+  const roots = CONFIG[mediaType]
+  const root = resolveRoot(roots, driveName)
+  if (root) return root
+
+  const message = `no root named '${driveName}' configured for ${mediaType} (have: ${rootNames(roots)})`
+  if (acrossAllTypes) {
+    console.log(`\n  [SKIP] ${mediaType} — ${message}`)
+    return null
+  }
+  console.error(`\n  Error: ${message}`)
+  process.exit(1)
+}
 
 async function main(): Promise<void> {
   // Extract validate-only flags before parseRunnerArgs (which expects to see
-  // only the standard --type/--all/--help flag set).
+  // only the standard --type/--all/--help flag set plus a bare drive name).
   const refreshOlderThanDays = extractRefreshOlderThanFlag()
 
   const parsed = parseRunnerArgs(VALIDATE_TYPES)
@@ -306,12 +368,14 @@ async function main(): Promise<void> {
   const client = new TmdbClient(secrets.tmdb.api_key)
 
   if (parsed.kind === 'all') {
-    await runMovies(client, refreshOlderThanDays)
-    await runShows(client, refreshOlderThanDays)
+    const moviesRoot = rootFor('movies', parsed.drive, true)
+    if (moviesRoot) await runMovies(client, refreshOlderThanDays, moviesRoot)
+    const showsRoot = rootFor('shows', parsed.drive, true)
+    if (showsRoot) await runShows(client, refreshOlderThanDays, showsRoot)
   } else if (parsed.type === 'movies') {
-    await runMovies(client, refreshOlderThanDays)
+    await runMovies(client, refreshOlderThanDays, rootFor('movies', parsed.drive, false)!)
   } else {
-    await runShows(client, refreshOlderThanDays)
+    await runShows(client, refreshOlderThanDays, rootFor('shows', parsed.drive, false)!)
   }
 
   console.log()

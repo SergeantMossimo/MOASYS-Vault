@@ -5,6 +5,7 @@ import { defaultShowsRules, type ShowsRules } from '../../../src/core/rules/show
 import { JsonCache } from '../../../src/validate/cache'
 import { WarningCollector, type ShowOutput } from '../../../src/core/types'
 import type {
+  ResolvedSearch,
   TmdbShowDetails,
   TmdbShowSearchResult,
   TmdbSeasonDetails,
@@ -93,6 +94,106 @@ describe('validateShows — confidence scoring', () => {
 
     expect(result[0]?.confidence).toBe('high')
     expect(result[0]?.tmdb_first_air_year).toBe(2001)
+  })
+
+  it('resolves "medium" via the loose tier when a colon was rendered as " - "', async () => {
+    const client = mockClient({
+      searchResults: [
+        {
+          id: 100,
+          name: 'Star Trek: Enterprise',
+          original_name: 'Star Trek: Enterprise',
+          first_air_date: '2001-09-26',
+          popularity: 50,
+        },
+      ],
+      details: {
+        100: {
+          id: 100,
+          name: 'Star Trek: Enterprise',
+          original_name: 'Star Trek: Enterprise',
+          first_air_date: '2001-09-26',
+          number_of_seasons: 4,
+          number_of_episodes: 98,
+          seasons: [{ season_number: 1, episode_count: 26, name: 'Season 1' }],
+        },
+      },
+    })
+
+    const result = await validateShows(
+      [show('Star Trek - Enterprise', 2001)],
+      defaultShowsRules,
+      client,
+      memoryCache(),
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    // 90 (loose name) + 50 (exact year) = 140 → medium, no no-match warning.
+    expect(result[0]?.confidence).toBe('medium')
+    expect(result[0]?.tmdb_id).toBe(100)
+    expect(warnings.all().filter(w => w.type === 'warn_tmdb_no_match')).toHaveLength(0)
+  })
+
+  it('re-queries TMDB when the cached verdict is "none"', async () => {
+    const client = mockClient({
+      searchResults: [
+        {
+          id: 100,
+          name: 'Star Trek: Enterprise',
+          original_name: 'Star Trek: Enterprise',
+          first_air_date: '2001-09-26',
+          popularity: 50,
+        },
+      ],
+      details: {
+        100: {
+          id: 100,
+          name: 'Star Trek: Enterprise',
+          original_name: 'Star Trek: Enterprise',
+          first_air_date: '2001-09-26',
+          number_of_seasons: 4,
+          number_of_episodes: 98,
+          seasons: [{ season_number: 1, episode_count: 26, name: 'Season 1' }],
+        },
+      },
+    })
+    const searchCache = memoryCache<ResolvedSearch>({
+      'show|star trek - enterprise|2001': { best_id: null, confidence: 'none', candidates: [] },
+    })
+
+    const result = await validateShows(
+      [show('Star Trek - Enterprise', 2001)],
+      defaultShowsRules,
+      client,
+      searchCache,
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    expect((client.searchShow as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1)
+    expect(result[0]?.confidence).toBe('medium')
+  })
+
+  it('serves cached "high" verdicts without calling TMDB', async () => {
+    const client = mockClient({ searchResults: [] })
+    const searchCache = memoryCache<ResolvedSearch>({
+      'show|star trek enterprise|2001': { best_id: null, confidence: 'high', candidates: [] },
+    })
+
+    await validateShows(
+      [show('Star Trek Enterprise', 2001)],
+      defaultShowsRules,
+      client,
+      searchCache,
+      memoryCache(),
+      memoryCache(),
+      warnings
+    )
+
+    expect((client.searchShow as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0)
   })
 
   it('returns "none" when search has no candidates', async () => {

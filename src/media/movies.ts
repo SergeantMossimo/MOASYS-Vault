@@ -27,8 +27,15 @@ import {
 } from '../core/types'
 import { hasExtension, isPrimary, formatPrimaryExts, findUnexpectedEntries } from '../core/files'
 import { MoviesRules } from '../core/rules/movies'
-import { compilePattern, resolveCategories, sortQualities } from '../core/rules/helpers'
-import { finalizeVersions, distinctCategories } from '../core/versions'
+import {
+  buildCategoryQualityMap,
+  compilePattern,
+  isAcceptableCombo,
+  qualitySortKey,
+  resolveCategories,
+  sortQualities,
+} from '../core/rules/helpers'
+import { finalizeVersions, groupCategoriesByQuality } from '../core/versions'
 import { ProbeData } from '../probe/types'
 import { deriveQuality } from '../probe/helpers'
 
@@ -86,11 +93,6 @@ function makeKey(title: string, year: number, edition: string | null): string {
   return `${title.toLowerCase()}|${year}|${(edition ?? '').toLowerCase()}`
 }
 
-/** Return true if the quality set matches one of the acceptable combos */
-function isAcceptableCombo(qualities: Set<string>, combos: readonly string[][]): boolean {
-  return combos.some(combo => combo.length === qualities.size && combo.every(q => qualities.has(q)))
-}
-
 /** Build the Plex-style movie name used as the warning path */
 function movieDisplayName(record: MovieRecord): string {
   const base = `${record.title} (${record.year})`
@@ -134,14 +136,10 @@ export function createMoviesModule(
   const categoryOrder = effectiveCategories.map(c => c.name)
 
   // Map each category name to its auto-detected quality (or the category name
-  // itself when quality is null). Used by the multi-quality postScan check to
-  // compare quality sets against `acceptable_quality_combos`, so that e.g.
-  // a movie in `{Other UHD, Other HD}` resolves to `{UHD, HD}` and matches a
-  // simple combo entry of `[UHD, HD]`.
-  const categoryToQuality = new Map<string, string>()
-  for (const c of effectiveCategories) {
-    categoryToQuality.set(c.name, c.quality ?? c.name)
-  }
+  // itself when quality is null). Used by both postScan quality checks, so
+  // that e.g. a movie in `{Other UHD, Other HD}` resolves to `{UHD, HD}` and
+  // matches a simple combo entry of `[UHD, HD]`.
+  const categoryToQuality = buildCategoryQualityMap(effectiveCategories)
 
   return {
     getCategories: () => effectiveCategories,
@@ -265,7 +263,7 @@ export function createMoviesModule(
               'warn_non_primary',
               path.join(folderRel, f.name),
               `${formatPrimaryExts(rules.primary_extension)} video file — may need re-encoding`,
-              ext
+              { extension: ext }
             )
           }
         }
@@ -410,28 +408,57 @@ export function createMoviesModule(
     },
 
     /**
-     * Post-merge check: emit a warning for each movie that exists across
-     * multiple distinct qualities, unless that quality set is whitelisted
-     * via `acceptable_quality_combos`. Categories are mapped through
-     * `categoryToQuality` first, so `{Other UHD, Other HD}` and `{UHD, HD}`
-     * both resolve to the quality set `{UHD, HD}` and match a single combo
-     * entry of `[UHD, HD]`.
+     * Post-merge quality checks, both driven off one grouping of the movie's
+     * categories by quality tier:
+     *
+     *   - `warn_duplicate_quality` — two or more category folders resolve to
+     *     the SAME tier (`HD/` + `Other HD/`), i.e. redundant copies of the
+     *     same thing. Never silenced by `acceptable_quality_combos`.
+     *   - `warn_multi_quality` — the movie spans more than one tier, and that
+     *     tier set isn't whitelisted in `acceptable_quality_combos`.
+     *
+     * Splitting them matters: `{UHD, HD, Other HD}` collapses to the tier set
+     * `{UHD, HD}`, which is the common whitelisted combo — so the third file
+     * is invisible to the multi-quality check and only the duplicate check
+     * catches it.
      */
     postScan(records: Map<string, MovieRecord>, warnings: WarningCollector): void {
-      if (!rules.checks.warn_multi_quality) return
+      const duplicateOn = rules.checks.warn_duplicate_quality
+      const multiOn = rules.checks.warn_multi_quality
+      if (!duplicateOn && !multiOn) return
 
       for (const record of records.values()) {
-        const cats = distinctCategories(record.versions)
-        const qualities = new Set<string>()
-        for (const c of cats) qualities.add(categoryToQuality.get(c) ?? c)
-        if (qualities.size <= 1) continue
-        if (isAcceptableCombo(qualities, rules.acceptable_quality_combos)) continue
+        const byQuality = groupCategoriesByQuality(record.versions, categoryToQuality)
 
-        warnings.add(
-          'warn_multi_quality',
-          movieDisplayName(record),
-          `Movie exists in multiple qualities: ${sortQualities(qualities).join(', ')}`
-        )
+        if (duplicateOn) {
+          for (const quality of sortQualities(byQuality.keys())) {
+            const cats = byQuality.get(quality)!
+            if (cats.length <= 1) continue
+            warnings.add(
+              'warn_duplicate_quality',
+              movieDisplayName(record),
+              `Duplicate ${quality} copies in ${cats.length} folders: ${cats.join(', ')} — ` +
+                `keep one and delete the rest`,
+              // Group the bucket by quality (UHD, then HD, then SD) rather
+              // than by title, so the worst offenders read together.
+              { sortKey: qualitySortKey(quality) }
+            )
+          }
+        }
+
+        if (multiOn) {
+          const qualities = new Set(byQuality.keys())
+          if (
+            qualities.size > 1 &&
+            !isAcceptableCombo(qualities, rules.acceptable_quality_combos)
+          ) {
+            warnings.add(
+              'warn_multi_quality',
+              movieDisplayName(record),
+              `Movie exists in multiple qualities: ${sortQualities(qualities).join(', ')}`
+            )
+          }
+        }
       }
     },
   }

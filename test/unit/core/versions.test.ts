@@ -5,6 +5,7 @@ import {
   sortVersions,
   finalizeVersions,
   distinctCategories,
+  groupCategoriesByQuality,
 } from '../../../src/core/versions'
 import type { Version } from '../../../src/core/types'
 
@@ -202,5 +203,68 @@ describe('distinctCategories', () => {
       { category: 'Soundtracks', quality: 'FLAC' },
     ]
     expect(distinctCategories(input)).toEqual(['Music', 'Soundtracks'])
+  })
+})
+
+describe('groupCategoriesByQuality', () => {
+  // Mirrors what buildCategoryQualityMap produces for a quality-organized
+  // library with "Other" overflow folders.
+  const tiers = new Map<string, string>([
+    ['UHD', 'UHD'],
+    ['Other UHD', 'UHD'],
+    ['HD', 'HD'],
+    ['Other HD', 'HD'],
+    ['SD', 'SD'],
+  ])
+
+  it('buckets two categories that share a tier together', () => {
+    const input: Version[] = [
+      { category: 'UHD', quality: 'UHD' },
+      { category: 'HD', quality: 'HD' },
+      { category: 'Other HD', quality: 'HD' },
+    ]
+    expect(groupCategoriesByQuality(input, tiers)).toEqual(
+      new Map([
+        ['UHD', ['UHD']],
+        ['HD', ['HD', 'Other HD']],
+      ])
+    )
+  })
+
+  it('collapses repeated versions of one category into a single bucket entry', () => {
+    // Shows push one version per episode file, so the same category recurs
+    // with differing derived qualities. That must not read as a duplicate.
+    const input: Version[] = [
+      { category: 'HD', quality: 'HD' },
+      { category: 'HD', quality: 'SD' },
+      { category: 'HD', quality: null },
+    ]
+    expect(groupCategoriesByQuality(input, tiers)).toEqual(new Map([['HD', ['HD']]]))
+  })
+
+  it('gives each general-tag category its own tier, keyed by its own name', () => {
+    const generalTags = new Map<string, string>([
+      ['Kids', 'Kids'],
+      ['Documentaries', 'Documentaries'],
+    ])
+    const input: Version[] = [
+      { category: 'Kids', quality: null },
+      { category: 'Documentaries', quality: null },
+    ]
+    expect(groupCategoriesByQuality(input, generalTags)).toEqual(
+      new Map([
+        ['Kids', ['Kids']],
+        ['Documentaries', ['Documentaries']],
+      ])
+    )
+  })
+
+  it('falls back to the category name when it is absent from the map', () => {
+    const input: Version[] = [{ category: 'Unmapped', quality: null }]
+    expect(groupCategoriesByQuality(input, tiers)).toEqual(new Map([['Unmapped', ['Unmapped']]]))
+  })
+
+  it('returns an empty map for an empty versions list', () => {
+    expect(groupCategoriesByQuality([], tiers)).toEqual(new Map())
   })
 })

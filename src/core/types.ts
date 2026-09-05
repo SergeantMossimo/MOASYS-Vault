@@ -25,28 +25,52 @@ export type { Category, ResolvedCategory }
  * config.json now only carries the per-machine root_path. Everything else
  * (extensions, patterns, conventions, the categories list) lives in the
  * rules layer (src/core/rules/<type>.ts and rules/<type>.yaml).
+ *
+ * This is the *per-root* shape — one run always targets exactly one root, so
+ * scan(), the probe walkers, and the media modules all keep taking a single
+ * `root_path` even though config.json now lists several per type.
  */
 export interface BaseMediaConfig {
   root_path: string
 }
 
 /**
+ * One named root in config.json's per-type array. `name` identifies the drive
+ * (e.g. "Server", "External") and — lowercased via `driveSlug()` — becomes the
+ * folder segment for that drive's cache, ignored, and output files.
+ *
+ * A MediaRootConfig is a superset of BaseMediaConfig, so it can be handed
+ * straight to scan() / probe*() with no unwrapping.
+ */
+export interface MediaRootConfig extends BaseMediaConfig {
+  name: string
+}
+
+/**
  * Per-type config interfaces. All four are structurally identical to
- * BaseMediaConfig now — kept as named aliases for documentation and so
- * future per-type config fields have a natural home.
+ * BaseMediaConfig — kept as named aliases for documentation and so future
+ * per-type config fields have a natural home.
+ *
+ * Deliberately *not* MediaRootConfig: the media modules and probe walkers
+ * only ever need `root_path`, and a MediaRootConfig satisfies that
+ * structurally. Keeping the narrower type here means nothing below the
+ * runner has to know that a drive has a name.
  */
 export type MoviesConfig = BaseMediaConfig
 export type ShowsConfig = BaseMediaConfig
 export type MusicConfig = BaseMediaConfig
 export type AudiobooksConfig = BaseMediaConfig
 
-/** The full shape of config.json */
+/**
+ * The full shape of config.json. Each media type is a list of named roots,
+ * ordered — the first entry is the default when a run doesn't name a drive.
+ */
 export interface AppConfig {
   _notes?: Record<string, string> // Optional documentation keys — ignored by scanner
-  movies: MoviesConfig
-  shows: ShowsConfig
-  music: MusicConfig
-  audiobooks: AudiobooksConfig
+  movies: MediaRootConfig[]
+  shows: MediaRootConfig[]
+  music: MediaRootConfig[]
+  audiobooks: MediaRootConfig[]
 }
 
 // ─────────────────────────────────────────────
@@ -63,6 +87,31 @@ export interface Warning {
   path: string
   issue: string
   extension?: string // Optional — only present for non-primary file warnings
+  /**
+   * Optional ordering override — see `WarningOptions.sortKey`. Internal only;
+   * never written to disk, since it's a sorting device rather than data a
+   * consumer of warnings.json would act on.
+   */
+  sortKey?: string
+}
+
+/** Optional extras on a warning. See `WarningCollector.add`. */
+export interface WarningOptions {
+  /**
+   * File extension for the offending file, surfaced on the row. Only set by
+   * the `warn_non_primary` checks, which exist to tell you which formats are
+   * still lurking in the library.
+   */
+  extension?: string
+  /**
+   * Overrides `path` when ordering this row within its `by_type` bucket.
+   * Lets a check group its rows by something more useful than alphabetical
+   * path order — `warn_duplicate_quality` uses `qualitySortKey` so the bucket
+   * reads UHD first, then HD, then SD. Ties fall back to `path`, so output
+   * stays deterministic. Set it on every row a check emits or none of them;
+   * a bucket that mixes the two orders unpredictably.
+   */
+  sortKey?: string
 }
 
 /**
@@ -80,7 +129,10 @@ export interface WarningRow {
  * grouped by their type so consumers can scan one bucket at a time without
  * filtering an array. `by_type` is sparse — only types with at least one hit
  * appear as keys. Inside each bucket, rows are sorted alphabetically by path
- * for stable, diff-friendly output.
+ * unless the check supplied a `sortKey` (see `WarningOptions`), which lets a
+ * bucket group by something more useful — `warn_duplicate_quality` orders by
+ * quality, UHD first. Either way the order is deterministic, so output stays
+ * stable and diff-friendly across runs.
  */
 export interface WarningsOutput {
   generated: string // ISO 8601 UTC timestamp
@@ -282,6 +334,21 @@ export interface MediaModule<TRecord, TOutput, TConfig extends BaseMediaConfig> 
 // ─────────────────────────────────────────────
 
 /**
+ * Order two warnings within a single type bucket. Checks that supplied a
+ * `sortKey` are grouped by it first (e.g. `warn_duplicate_quality` lists all
+ * UHD rows, then HD, then SD); everything else falls back to alphabetical
+ * path order, which is also the tiebreak inside a sortKey group. Shared by
+ * `all()` and `groupedByType()` so the run summary and the on-disk file never
+ * disagree about ordering.
+ */
+function compareRows(a: Warning, b: Warning): number {
+  const ka = a.sortKey ?? a.path
+  const kb = b.sortKey ?? b.path
+  if (ka !== kb) return ka.localeCompare(kb)
+  return a.path.localeCompare(b.path)
+}
+
+/**
  * Accumulates warning messages during a scan.
  * Passed into each media module so warnings can be added from anywhere
  * in the scanning process and written to warnings.json at the end.
@@ -298,60 +365,70 @@ export class WarningCollector {
 
   constructor(private ignored: IgnoredEntry[] = []) {}
 
-  /** Add a warning. type, path, and issue are required; extension is optional.
+  /** Add a warning. type, path, and issue are required; `options` is optional.
    *  - type:   stable machine-readable identifier (e.g. 'warn_bad_folder_name'),
    *            used for grouping in warnings.json and for type-scoped silencing
    *            in ignored/<type>.yaml.
    *  - path:   library-relative location. Backslashes are normalized to forward
    *            slashes so output is consistent across Windows and macOS/Linux.
    *  - issue:  human-readable description.
-   *  - extension: optional file extension, only set for non-primary file warnings. */
-  add(type: string, path: string, issue: string, extension?: string): void {
+   *  - options: `extension` and `sortKey` — see `WarningOptions`. */
+  add(type: string, path: string, issue: string, options: WarningOptions = {}): void {
     const normalizedPath = path.replace(/\\/g, '/')
     if (isWarningIgnored(type, normalizedPath, this.ignored)) {
       this.silenced++
       return
     }
     const entry: Warning = { type, path: normalizedPath, issue }
-    if (extension !== undefined) entry.extension = extension
+    if (options.extension !== undefined) entry.extension = options.extension
+    if (options.sortKey !== undefined) entry.sortKey = options.sortKey
     this.warnings.push(entry)
   }
 
   /**
-   * Return a flat copy of all collected warnings, sorted by (type, path).
-   * Used by tests and by the per-type summary in the run output; the on-disk
-   * shape is built via `groupedByType()`.
+   * Return a flat copy of all collected warnings, sorted the same way the
+   * on-disk buckets are (see `compareRows`). Used by tests and by the
+   * per-type summary in the run output; the on-disk shape is built via
+   * `groupedByType()`.
    */
   all(): Warning[] {
     return [...this.warnings].sort((a, b) => {
       if (a.type !== b.type) return a.type.localeCompare(b.type)
-      return a.path.localeCompare(b.path)
+      return compareRows(a, b)
     })
   }
 
   /**
    * Return warnings grouped by their `type` for writing to warnings.json.
-   * Each bucket's rows are sorted alphabetically by path; the outer keys are
-   * sorted as well so JSON serialization is stable across runs. Sparse —
-   * only types with at least one hit appear as keys.
+   * Each bucket's rows are ordered by `compareRows` — alphabetically by path
+   * unless the check supplied a `sortKey`; the outer keys are sorted as well
+   * so JSON serialization is stable across runs. Sparse — only types with at
+   * least one hit appear as keys.
    */
   groupedByType(): Record<string, WarningRow[]> {
-    const buckets = new Map<string, WarningRow[]>()
+    const buckets = new Map<string, Warning[]>()
     for (const w of this.warnings) {
       let bucket = buckets.get(w.type)
       if (!bucket) {
         bucket = []
         buckets.set(w.type, bucket)
       }
-      const row: WarningRow = { path: w.path, issue: w.issue }
-      if (w.extension !== undefined) row.extension = w.extension
-      bucket.push(row)
+      bucket.push(w)
     }
 
     const sortedKeys = [...buckets.keys()].sort()
     const out: Record<string, WarningRow[]> = {}
     for (const key of sortedKeys) {
-      out[key] = buckets.get(key)!.sort((a, b) => a.path.localeCompare(b.path))
+      // Sort as Warnings (which carry sortKey), then strip to the on-disk
+      // row shape — sortKey is an ordering device, not data worth shipping.
+      out[key] = buckets
+        .get(key)!
+        .sort(compareRows)
+        .map(w => {
+          const row: WarningRow = { path: w.path, issue: w.issue }
+          if (w.extension !== undefined) row.extension = w.extension
+          return row
+        })
     }
     return out
   }

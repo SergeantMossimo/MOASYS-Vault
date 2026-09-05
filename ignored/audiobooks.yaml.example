@@ -3,15 +3,20 @@
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # A "do not warn me about this" list for your audiobooks library. Anything
-# you put here gets silently dropped from output/audiobooks/warnings.json on
-# every run.
+# you put here gets silently dropped from
+# output/<drive>/audiobooks/warnings.json on every run.
+#
+# Ignore lists are per DRIVE as well as per type, because the paths below are
+# relative to that drive's root_path. `<drive>` is the lowercased `name` of a
+# root in config.json — e.g. `server`, `external`.
 #
 # How to use this file:
-#   1. Copy this file to `ignored/audiobooks.yaml` (drop the `.example`
-#      suffix). The real `audiobooks.yaml` is gitignored so your personal
-#      decisions don't end up in version control.
+#   1. Copy this file to `ignored/<drive>/audiobooks.yaml` (create the drive
+#      folder, drop the `.example` suffix). The real per-drive files are
+#      gitignored so your personal decisions don't end up in version control.
 #   2. Add path prefixes below — one per line.
-#   3. Re-run `npm run audiobooks`. Matching warnings disappear from output.
+#   3. Re-run `npm run audiobooks <drive>`. Matching warnings disappear from
+#      output.
 #
 # Two entry shapes — pick whichever fits each case:
 #
@@ -27,7 +32,7 @@
 # Matching is case-insensitive and forward-slash-normalized, so the same
 # file works on Windows (backslashes) and macOS/Linux (forward slashes).
 #
-# Get the paths to add from output/audiobooks/warnings.json — paths live under
+# Get the paths to add from output/<drive>/audiobooks/warnings.json — paths live under
 # each `by_type` bucket. Most audiobook warnings use a `<Category>/<Author>/<Book>`
 # path shape (or `<Author>/<Book>` if you don't use category subfolders).
 # The bucket key (e.g. `warn_duplicate_book`) is the warning type; you can

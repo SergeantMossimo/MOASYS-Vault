@@ -2,12 +2,24 @@
 
 MOASYS-Vault has two passes you can run against your library:
 
-| Pass         | Command                   | What it does                                                                                          |
-| ------------ | ------------------------- | ----------------------------------------------------------------------------------------------------- |
-| **Scan**     | `npm run <type>`          | Walks your folders and inspects every file. Produces your catalog plus a list of hygiene issues.      |
-| **Validate** | `npm run validate:<type>` | Cross-checks your catalog against TheMovieDB to catch title typos, wrong years, and missing episodes. |
+| Pass         | Command                           | What it does                                                                                          |
+| ------------ | --------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Scan**     | `npm run <type> [drive]`          | Walks your folders and inspects every file. Produces your catalog plus a list of hygiene issues.      |
+| **Validate** | `npm run validate:<type> [drive]` | Cross-checks your catalog against TheMovieDB to catch title typos, wrong years, and missing episodes. |
 
 The **scan** pass runs for every media type. The **validate** pass is **movies and shows only** — it needs TMDB, and TMDB doesn't cover music or audiobooks. Validate is also fully optional; you don't need it for the scanner to work.
+
+## Picking a drive
+
+If a media type spans several drives, `config.json` lists one named root per drive and every command takes an optional drive name. Omit it and you get the **first root** configured for that type:
+
+```bash
+npm run movies              # first movies root
+npm run movies external     # the root named "External"
+npm run validate:movies external
+```
+
+Each drive is scanned independently, into its own `output/<drive>/<type>/` folder with its own cache and ignore list. Nothing is merged across drives. See [Configuration](CONFIG.md#selecting-a-drive) for the full rules.
 
 ---
 
@@ -20,12 +32,16 @@ The **scan** pass runs for every media type. The **validate** pass is **movies a
 npm install
 
 # 2. Point the scanner at your library
-# Open config.json and set root_path for each media type you have
+# Open config.json and list a named root for each media type you have
+# (one entry per drive if a type spans more than one)
 
 # 3. First scan — this is the slow one (every file gets inspected to build a cache)
 npm run scan:all
 
-# 3.1 (Optional) Validate movies/shows against TMDB — needs a TMDB API key
+# 3.1 If a type spans several drives, scan each one
+npm run scan:all external
+
+# 3.2 (Optional) Validate movies/shows against TMDB — needs a TMDB API key
 npm run validate:movies
 npm run validate:shows
 
@@ -33,7 +49,7 @@ npm run validate:shows
 npm run scan:all
 ```
 
-Re-runs are near-instant because the file inspection cache (`cache/<type>-probe.json`) skips anything that hasn't changed.
+Re-runs are near-instant because the file inspection cache (`cache/<drive>/<type>-probe.json`) skips anything that hasn't changed.
 
 ### Adding new media
 
@@ -61,13 +77,13 @@ You changed something in your library — what do you need to re-run?
 
 ---
 
-## Scan pass — `npm run <type>`
+## Scan pass — `npm run <type> [drive]`
 
-The scan pass for one media type does three things in order:
+The scan pass for one media type on one drive does three things in order:
 
 1. **Inspect every file.** Walks every primary file and records video dimensions, audio codec/bitrate/sample rate, and (for music) the artist/album/track info embedded in the file. Results are cached, so subsequent runs skip unchanged files.
 2. **Walk the folder tree.** Goes through the configured `categories` (or `root_path` directly if no categories are set) and parses each file's name and folder structure. Combines the inspection data to derive each version's quality.
-3. **Write three files per type** under `output/<type>/`:
+3. **Write three files** under `output/<drive>/<type>/`:
    - `<type>.json` — your clean catalog
    - `probe.json` — the rich per-file inspection data (codec, bitrate, sample rate, embedded tags, etc.)
    - `warnings.json` — every hygiene issue from steps 1 and 2
@@ -83,7 +99,7 @@ First run on a fresh library is the slow one — file inspection takes 100–300
 | 7,000 tracks   | ~10 min    |
 | 3,500 chapters | ~6 min     |
 
-The cache lives at `cache/<type>-probe.json` (gitignored) and is keyed by `path | modification time | size`. Only changed or added files get re-inspected on subsequent runs.
+The cache lives at `cache/<drive>/<type>-probe.json` (gitignored) and is keyed by `path | modification time | size`, where the path is relative to that drive's `root_path`. Only changed or added files get re-inspected on subsequent runs. Each drive keeps its own cache file — a shared one would let one drive's orphan cleanup delete the other drive's entries.
 
 ### Quality buckets (movies and shows)
 
@@ -113,13 +129,13 @@ See [Configuration](CONFIG.md#three-configuration-shapes) for the full configura
 
 ### Audio quality summary (music)
 
-Each album in `output/music/probe.json` gets a derived `audio_quality_summary` field — short, human-readable strings like `"FLAC 16/44.1"`, `"MP3 ~288"`, or `"AAC 256"`. The summary collapses tracks that share a codec and roughly the same bitrate target into one entry, so a VBR-encoded album doesn't list ten different bitrates.
+Each album in `output/<drive>/music/probe.json` gets a derived `audio_quality_summary` field — short, human-readable strings like `"FLAC 16/44.1"`, `"MP3 ~288"`, or `"AAC 256"`. The summary collapses tracks that share a codec and roughly the same bitrate target into one entry, so a VBR-encoded album doesn't list ten different bitrates.
 
 Albums where the tracks have truly mismatched quality (FLAC mixed with MP3, or a very wide bitrate spread) get a `warn_quality_inconsistent` warning so you know which albums to clean up.
 
 ### Embedded music tags
 
-Music files carry metadata embedded inside them — title, artist, album, year, track number, genre, and so on. The scanner reads these tags during the file inspection pass and stores them per track in `output/music/probe.json` under a `tags` field.
+Music files carry metadata embedded inside them — title, artist, album, year, track number, genre, and so on. The scanner reads these tags during the file inspection pass and stores them per track in `output/<drive>/music/probe.json` under a `tags` field.
 
 Four warnings are driven from the tag data:
 
@@ -140,14 +156,14 @@ If you find a stack of these in your warnings, that's the pattern.
 
 ---
 
-## Validate pass — `npm run validate:<type>`
+## Validate pass — `npm run validate:<type> [drive]`
 
 Cross-checks your scan output against TheMovieDB. **Movies and shows only** — TMDB doesn't cover music or audiobooks.
 
-Writes:
+Reads `output/<drive>/<type>/<type>.json`, so run the scan for that same drive first. Writes alongside it:
 
-- `output/<type>/validation.json` — per-record TMDB resolution (canonical title, year, TMDB ID, alternatives)
-- `output/<type>/validation-warnings.json` — confidence warnings and canonical-title rename suggestions
+- `output/<drive>/<type>/validation.json` — per-record TMDB resolution (canonical title, year, TMDB ID, alternatives)
+- `output/<drive>/<type>/validation-warnings.json` — confidence warnings and canonical-title rename suggestions
 
 ### Setup
 
@@ -173,19 +189,36 @@ See [Configuration](CONFIG.md#secretsjson) for details.
 
 ### How matching works
 
-Matching is **strict** — only characters that are illegal in filenames (`<>:"|?*\/`) are stripped before comparison. Diacritics are NOT stripped: your `Amelie` won't match TMDB's `Amélie` because `é` is legal in filenames. The scanner surfaces these as `no_match` so you can decide whether to add the accent.
+Titles are compared in two tiers, because a filename-illegal character (`<>:"|?*\/`) can be rendered in a folder name more than one way.
+
+**Strict tier.** Illegal characters are _deleted_, then the result is lowercased and whitespace-collapsed. This catches the case where you dropped the character outright: TMDB's `Face/Off` and your folder `FaceOff` both reduce to `faceoff`.
+
+**Loose tier.** Illegal characters become a _separator_ instead, `-` collapses to a space, `&` reads as `and`, and stray commas and periods are dropped. This catches the case where you substituted for the character rather than deleting it — which is what most people do with a subtitle colon:
+
+| Your folder                | TMDB                      | Matches via |
+| -------------------------- | ------------------------- | ----------- |
+| `Ghostbusters - Afterlife` | `Ghostbusters: Afterlife` | loose       |
+| `Pain And Gain`            | `Pain & Gain`             | loose       |
+| `Good Morning Vietnam`     | `Good Morning, Vietnam`   | loose       |
+| `FaceOff`                  | `Face/Off`                | strict      |
+
+Neither tier subsumes the other, so both run.
+
+Both tiers stay strict about everything that _is_ legal in a filename. Diacritics are never folded — your `Amelie` won't match TMDB's `Amélie`, and `Halloween H2o` won't match `Halloween H20`. Those are real divergences, surfaced as `no_match` so you can decide.
 
 When a match is found:
 
 - A `tmdb_title_filename_safe` field is included in the output — a copy-pasteable rename target
-- If your folder differs from that target, `warn_tmdb_title_canonical` fires
+- If your folder differs from that target **byte-for-byte**, `warn_tmdb_title_canonical` fires. A loose-tier match will normally trip this, which is the point: it turns a dead-end `no_match` into a concrete rename suggestion.
 
-Confidence is scored from title-match strength (exact / prefix / substring) plus year-match closeness (exact / off-by-1 / off-by-2 / wider). Thresholds:
+Confidence is scored from title-match strength plus year-match closeness (exact / off-by-1 / off-by-2 / wider). Thresholds:
 
-- **high** (≥ 150) — title exact + year exact
-- **medium** (≥ 110) — usually title exact + year off by one, or prefix + year exact
+- **high** (≥ 150) — title exact (strict) + year exact
+- **medium** (≥ 110) — title exact + year off by one, loose title match + year exact, or prefix + year exact
 - **low** (≥ 60) — partial title match + close year
 - **none** (< 60) — no plausible candidate; warning fires
+
+A **medium** from the loose tier means "this is the right film, but your folder name isn't byte-identical to TMDB's" — no confidence warning fires, and `warn_tmdb_title_canonical` carries the rename target.
 
 ### Caching
 
@@ -196,7 +229,17 @@ Four caches keep TMDB calls minimal:
 - `cache/tmdb-shows.json` — full show records by TMDB ID
 - `cache/tmdb-show-seasons.json` — per-season episode details (titles, air dates), only populated when `warn_tmdb_episode_name_mismatch` is enabled
 
-All gitignored. Re-runs are near-instant. Total first-run cost for the example library: ~10 min for movies, ~3 min for shows.
+Unlike the file-inspection cache, these are **not** split per drive — they're keyed by title and year rather than by path, so validating a second drive reuses everything the first one fetched.
+
+All gitignored. Total first-run cost for the example library: ~10 min for movies, ~3 min for shows.
+
+#### Negative results are never cached permanently
+
+One deliberate exception to "re-runs are near-instant": a cached **none** or **low** verdict is always re-queried. Only **high** and **medium** matches are served straight from the cache.
+
+TMDB's search index changes over time, and a title it couldn't find last month may be findable today. `Face/Off` is the worked example — the folder must be named `FaceOff` because `/` is illegal in a filename, and for months TMDB returned nothing for that query. It returns the film now. Without this re-query, that false `warn_tmdb_no_match` would have persisted forever, because nothing ever asked again.
+
+The practical cost is one round-trip per warning-producing entry per run — a few seconds on a healthy library, and it shrinks as you resolve warnings. Everything else stays cached.
 
 #### Refreshing stale entries
 

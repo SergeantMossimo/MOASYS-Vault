@@ -30,8 +30,15 @@ import {
 import { hasExtension, isPrimary, formatPrimaryExts, findUnexpectedEntries } from '../core/files'
 import { findNumericGaps } from '../core/gaps'
 import { ShowsRules } from '../core/rules/shows'
-import { compilePattern, resolveCategories, sortQualities } from '../core/rules/helpers'
-import { finalizeVersions, distinctCategories } from '../core/versions'
+import {
+  buildCategoryQualityMap,
+  compilePattern,
+  isAcceptableCombo,
+  qualitySortKey,
+  resolveCategories,
+  sortQualities,
+} from '../core/rules/helpers'
+import { finalizeVersions, groupCategoriesByQuality } from '../core/versions'
 import { ProbeData } from '../probe/types'
 import { deriveQuality } from '../probe/helpers'
 
@@ -135,19 +142,9 @@ export function createShowsModule(
   const categoryOrder = effectiveCategories.map(c => c.name)
 
   // Map each category name to its auto-detected quality (or the category
-  // name itself when quality is null). Used by the per-season multi_quality
-  // postScan check so {Other HD, SD} resolves to qualities {HD, SD}.
-  const categoryToQuality = new Map<string, string>()
-  for (const c of effectiveCategories) {
-    categoryToQuality.set(c.name, c.quality ?? c.name)
-  }
-
-  /** Return true if the quality set matches one of the acceptable combos. */
-  function isAcceptableCombo(qualities: Set<string>, combos: readonly string[][]): boolean {
-    return combos.some(
-      combo => combo.length === qualities.size && combo.every(q => qualities.has(q))
-    )
-  }
+  // name itself when quality is null). Used by both per-season postScan
+  // quality checks so {Other HD, SD} resolves to qualities {HD, SD}.
+  const categoryToQuality = buildCategoryQualityMap(effectiveCategories)
 
   return {
     getCategories: () => effectiveCategories,
@@ -359,7 +356,7 @@ export function createShowsModule(
                 'warn_non_primary',
                 path.join(seasonRel, f.name),
                 `${formatPrimaryExts(rules.primary_extension)} video file — may need re-encoding`,
-                ext
+                { extension: ext }
               )
             }
           }
@@ -561,29 +558,60 @@ export function createShowsModule(
     },
 
     /**
-     * Post-merge check: emit a warning for each (show, season) pair whose
-     * versions span more than one distinct quality, unless that quality set
-     * is whitelisted via `acceptable_quality_combos`. Per-season scope means
-     * different seasons in different qualities (S01 DVD, S02-S08 Bluray) do
-     * NOT trigger this — only a single season existing in multiple qualities
-     * does (e.g. S01 in both DVD/SD and Bluray/HD).
+     * Post-merge quality checks, both scoped per (show, season) and driven off
+     * one grouping of that season's categories by quality tier:
+     *
+     *   - `warn_duplicate_quality` — the season sits in two or more category
+     *     folders resolving to the SAME tier (`HD/` + `Other HD/`), i.e.
+     *     redundant copies. Never silenced by `acceptable_quality_combos`.
+     *   - `warn_multi_quality` — the season spans more than one tier and that
+     *     tier set isn't whitelisted in `acceptable_quality_combos`.
+     *
+     * Per-season scope means different seasons in different qualities (S01
+     * DVD, S02-S08 Bluray) trigger neither — each season sees exactly one
+     * category. Splitting the two matters because `{UHD, HD, Other HD}`
+     * collapses to the tier set `{UHD, HD}`, the common whitelisted combo,
+     * so only the duplicate check catches that third copy.
      */
     postScan(records: Map<string, ShowRecord>, warnings: WarningCollector): void {
-      if (!rules.checks.warn_multi_quality) return
+      const duplicateOn = rules.checks.warn_duplicate_quality
+      const multiOn = rules.checks.warn_multi_quality
+      if (!duplicateOn && !multiOn) return
 
       for (const show of records.values()) {
         for (const season of show.seasons.values()) {
-          const cats = distinctCategories(season.versions)
-          const qualities = new Set<string>()
-          for (const c of cats) qualities.add(categoryToQuality.get(c) ?? c)
-          if (qualities.size <= 1) continue
-          if (isAcceptableCombo(qualities, rules.acceptable_quality_combos)) continue
+          const warningPath = `${show.title} (${show.year}) — Season ${season.season_label}`
+          const byQuality = groupCategoriesByQuality(season.versions, categoryToQuality)
 
-          warnings.add(
-            'warn_multi_quality',
-            `${show.title} (${show.year}) — Season ${season.season_label}`,
-            `Season ${season.season_label} exists in multiple qualities: ${sortQualities(qualities).join(', ')}`
-          )
+          if (duplicateOn) {
+            for (const quality of sortQualities(byQuality.keys())) {
+              const cats = byQuality.get(quality)!
+              if (cats.length <= 1) continue
+              warnings.add(
+                'warn_duplicate_quality',
+                warningPath,
+                `Season ${season.season_label} has duplicate ${quality} copies in ` +
+                  `${cats.length} folders: ${cats.join(', ')} — keep one and delete the rest`,
+                // Group the bucket by quality (UHD, then HD, then SD) rather
+                // than by show title, so the worst offenders read together.
+                { sortKey: qualitySortKey(quality) }
+              )
+            }
+          }
+
+          if (multiOn) {
+            const qualities = new Set(byQuality.keys())
+            if (
+              qualities.size > 1 &&
+              !isAcceptableCombo(qualities, rules.acceptable_quality_combos)
+            ) {
+              warnings.add(
+                'warn_multi_quality',
+                warningPath,
+                `Season ${season.season_label} exists in multiple qualities: ${sortQualities(qualities).join(', ')}`
+              )
+            }
+          }
         }
       }
     },

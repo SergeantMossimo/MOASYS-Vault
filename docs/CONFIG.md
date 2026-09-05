@@ -12,24 +12,67 @@ Each rules file contains the default rules for its media type. You only need to 
 
 ## `config.json`
 
-One section per media type, each with one field:
+One section per media type. Each section is a **list of named roots**, so a media type can span several drives:
 
 ```json
 {
-  "movies": { "root_path": "Z:\\Movies" },
-  "shows": { "root_path": "Z:\\Shows" },
-  "music": { "root_path": "M:\\Audio" },
-  "audiobooks": { "root_path": "M:\\Audiobooks" }
+  "movies": [
+    { "root_path": "M:\\Movies", "name": "Server" },
+    { "root_path": "D:\\Movies", "name": "External" }
+  ],
+  "shows": [
+    { "root_path": "M:\\Shows", "name": "Server" },
+    { "root_path": "D:\\Shows", "name": "External" }
+  ],
+  "music": [{ "root_path": "M:\\Audio", "name": "Server" }],
+  "audiobooks": [{ "root_path": "M:\\Audiobooks", "name": "Server" }]
 }
 ```
 
-**`root_path`** — absolute path to that media type's library root. Platform notes:
+**`root_path`** — absolute path to that root's library folder. Platform notes:
 
 - **Windows:** `"Z:\\Movies"` (double backslashes inside JSON)
 - **macOS:** `"/Volumes/Movies"`
 - **Linux:** `"/mnt/nas/Movies"`
 
-The scanner walks the subfolders defined in the rules files under `categories`, or — if `categories` is empty in the rules file — it walks `root_path` directly and labels every record's category as `"default"`.
+**`name`** — what you call that drive. It's yours to pick (`Server`, `External`, `NAS`, `Archive`), with three constraints:
+
+- Letters, numbers, dots, dashes, and underscores only — it becomes a folder name. `.` and `..` on their own are rejected.
+- Unique within a media type (case-insensitively).
+- The same name can be reused across media types. `Server` holding both movies and music is the normal case.
+
+Every section needs at least one root. If you don't have a media type at all, give it a placeholder — it's never touched unless you run that type's command.
+
+The scanner walks the subfolders defined in the rules files under `categories`, or — if `categories` is empty in the rules file — it walks `root_path` directly and labels every record's category as `"default"`. Categories are defined per _type_, not per drive, so the same `rules/<type>.yaml` applies to every root. A category folder missing from one drive is just skipped.
+
+### Selecting a drive
+
+A run always targets exactly one root. Name it positionally, or omit it to get the **first root in the list**:
+
+```bash
+npm run movies              # first movies root — "Server"
+npm run movies external     # the root named "External" (case-insensitive)
+npm run validate:movies external
+npm run scan:all external   # every type that has an "External" root
+```
+
+Naming a drive that isn't configured for that type is an error — except under `scan:all` / `validate:all`, where the type is skipped with a note. That's what lets `npm run scan:all external` work when only movies and shows live on the external drive.
+
+### Per-drive files
+
+The root's name (lowercased) becomes a folder segment, so drives never share state:
+
+```text
+output/server/movies/movies.json      output/external/movies/movies.json
+output/server/movies/probe.json       output/external/movies/probe.json
+output/server/movies/warnings.json    output/external/movies/warnings.json
+cache/server/movies-probe.json        cache/external/movies-probe.json
+ignored/server/movies.yaml            ignored/external/movies.yaml
+```
+
+Keeping the probe cache separate matters: cache entries are keyed by a path _relative_ to the root, so a shared cache file would let one drive's orphan cleanup delete the other drive's entries.
+
+The TMDB caches (`cache/tmdb-*.json`) are deliberately **not** split per drive — they're keyed by title and year, not by path, so every drive reuses the same lookups.
 
 That's it for `config.json`. Everything else lives in `rules/<type>.yaml`.
 
@@ -85,6 +128,7 @@ You have subfolders like `UHD/`, `HD/`, `SD/`, possibly with `Other UHD/`, `Othe
 
 - Flag files whose actual dimensions don't match the quality their folder implies (`warn_quality_mismatch`)
 - Flag the same media stored across multiple distinct qualities (`warn_multi_quality`)
+- Flag the same media stored twice at the SAME quality, e.g. in both `HD/` and `Other HD/` (`warn_duplicate_quality`)
 
 **Configure**:
 
@@ -172,7 +216,7 @@ patterns:
 
 **Why you'd change it:** To tell the scanner which subfolders to look in and how to organize the output. See [Three configuration shapes](#three-configuration-shapes) above to pick the right shape for your library.
 
-**Related warnings:** `warn_quality_mismatch`, `warn_multi_quality`, `warn_duplicate_album`, `warn_duplicate_book` all depend on how you set this up.
+**Related warnings:** `warn_quality_mismatch`, `warn_multi_quality`, `warn_duplicate_quality`, `warn_duplicate_album`, `warn_duplicate_book` all depend on how you set this up.
 
 **Example:**
 
@@ -318,6 +362,8 @@ quality_thresholds:
 
 **Related warnings:** `warn_multi_quality` — silenced when an item's quality set matches a combo listed here.
 
+**What it does NOT silence:** `warn_duplicate_quality`. A combo lists which quality _tiers_ may coexist; it says nothing about how many copies may sit inside one tier. A movie in `UHD/` + `HD/` + `Other HD/` still resolves to the tier set `{UHD, HD}` and matches `[UHD, HD]`, so `warn_multi_quality` stays quiet — but the two HD-tier copies are reported as duplicates regardless. If you genuinely want those, silence them per-path in `ignored/<drive>/<type>.yaml` or turn the check off entirely.
+
 **Example:**
 
 ```yaml
@@ -390,7 +436,7 @@ acceptable_book_combos:
 
 **What it is:** A flat table of per-warning toggles. Every warning the scanner can emit has a corresponding `warn_*` boolean here. Set one to `false` to silence that warning across the board.
 
-**Why you'd change it:** You've decided a particular warning isn't useful for your library and want to suppress it globally. To silence warnings on specific paths only, use [`ignored/<type>.yaml`](#ignoredtypeyaml--silencing-specific-warnings) instead.
+**Why you'd change it:** You've decided a particular warning isn't useful for your library and want to suppress it globally. To silence warnings on specific paths only, use [`ignored/<drive>/<type>.yaml`](#ignoreddrivetypeyaml--silencing-specific-warnings) instead.
 
 **Related warnings:** all of them. See [Output](OUTPUT.md) for the complete warning catalog per media type.
 
@@ -417,23 +463,28 @@ The defaults live in code at `src/core/rules/<type>.ts` alongside the schema, so
 
 ---
 
-## `ignored/<type>.yaml` — silencing specific warnings
+## `ignored/<drive>/<type>.yaml` — silencing specific warnings
 
-For warnings you can't or don't want to fix (an incomplete season that never aired, a folder name you've decided not to change, a known false positive), drop a per-type ignore file in the `ignored/` folder. Any warning whose `path` matches an entry is silently dropped from `warnings.json` and counted in the run summary.
+For warnings you can't or don't want to fix (an incomplete season that never aired, a folder name you've decided not to change, a known false positive), drop an ignore file under that drive's folder. Any warning whose `path` matches an entry is silently dropped from `warnings.json` and counted in the run summary.
+
+Ignore lists are **per drive** as well as per type, because warning paths are relative to that drive's `root_path` — the same relative path can mean different files on different drives.
 
 ```text
 ignored/
 ├── movies.yaml.example         ← reference files with commented examples
-├── movies.yaml                 ← file for user's ignore list
 ├── shows.yaml.example
-├── shows.yaml
 ├── music.yaml.example
-├── music.yaml
 ├── audiobooks.yaml.example
-└── audiobooks.yaml
+├── server/                     ← one folder per root name in config.json
+│   ├── movies.yaml
+│   ├── shows.yaml
+│   └── music.yaml
+└── external/
+    ├── movies.yaml
+    └── shows.yaml
 ```
 
-Each `.yaml.example` ships with commented usage patterns. To use: copy it to `<type>.yaml` (drop the `.example` suffix) and uncomment / edit the entries you need.
+Each `.yaml.example` at the top level ships with commented usage patterns. To use: copy it to `ignored/<drive>/<type>.yaml` (lowercase drive name, drop the `.example` suffix) and uncomment / edit the entries you need. A drive with nothing to silence needs no file — and no folder — at all.
 
 ### Two entry shapes
 

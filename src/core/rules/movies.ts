@@ -62,6 +62,11 @@ export const MoviesRulesSchema = z.object({
    * Cross-folder quality combos that are intentional and should NOT trigger
    * the "movie exists in multiple quality folders" warning.
    * Comparison is set-based — order inside each combo doesn't matter.
+   *
+   * Silences `warn_multi_quality` only. A combo lists which quality TIERS may
+   * coexist, so it can never silence `warn_duplicate_quality` — a movie in
+   * `HD/` + `Other HD/` + `UHD/` still resolves to the tier set {UHD, HD} and
+   * matches `[UHD, HD]`, but the two HD-tier copies are reported regardless.
    */
   acceptable_quality_combos: z.array(z.array(z.string())),
 
@@ -106,6 +111,14 @@ export const MoviesRulesSchema = z.object({
     warn_title_mismatch: z.boolean(),
     warn_year_mismatch: z.boolean(),
     warn_duplicate_edition: z.boolean(),
+    /**
+     * The same movie exists in two or more category folders that resolve to
+     * the SAME quality tier (e.g. `HD/` and `Other HD/`) — redundant copies
+     * of the same thing. Deliberately NOT silenceable via
+     * `acceptable_quality_combos`: those describe which tiers may coexist,
+     * not how many copies may sit inside one tier.
+     */
+    warn_duplicate_quality: z.boolean(),
     warn_multi_quality: z.boolean(),
     warn_quality_mismatch: z.boolean(),
     /**
@@ -200,6 +213,7 @@ export const defaultMoviesRules: MoviesRules = MoviesRulesSchema.parse({
     warn_title_mismatch: true,
     warn_year_mismatch: true,
     warn_duplicate_edition: true,
+    warn_duplicate_quality: true,
     warn_multi_quality: true,
     warn_quality_mismatch: true,
     warn_loose_files: true,

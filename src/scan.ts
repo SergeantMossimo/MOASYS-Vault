@@ -6,23 +6,41 @@
  * merged pass: probe (cache-aware) + scan (folder walk) → catalog + rich
  * probe data + warnings.
  *
+ * Each media type can span several drives — config.json lists one or more
+ * named roots per type, and a run targets exactly one of them. Name it
+ * positionally, or omit it to get the first configured root.
+ *
  * Usage:
- *   npm run movies
+ *   npm run movies                 # first root configured for movies
+ *   npm run movies external        # the root named "External"
  *   npm run shows
  *   npm run music
  *   npm run audiobooks
  *   npm run scan:all
+ *   npm run scan:all external      # every type that has an "External" root
  */
 
 import fs from 'fs'
 import path from 'path'
 
-import { AppConfig, BaseMediaConfig, MediaModule, WarningCollector } from './core/types'
-import { loadConfig } from './core/config'
+import {
+  AppConfig,
+  BaseMediaConfig,
+  MediaModule,
+  MediaRootConfig,
+  WarningCollector,
+} from './core/types'
+import { driveSlug, loadConfig } from './core/config'
 import { scan, writeJson } from './core/scanner'
 import { loadRules } from './core/rules/loader'
-import { IgnoredEntry, loadIgnoredPaths } from './core/ignored'
-import { parseRunnerArgs, writeJsonOutput, writeWarnings } from './core/runner-shared'
+import { loadIgnoredPaths } from './core/ignored'
+import {
+  parseRunnerArgs,
+  resolveRoot,
+  rootNames,
+  writeJsonOutput,
+  writeWarnings,
+} from './core/runner-shared'
 
 import { createMoviesModule } from './media/movies'
 import { createShowsModule } from './media/shows'
@@ -58,11 +76,16 @@ const CONFIG: AppConfig = loadConfig(SCRIPT_DIR)
 // ─────────────────────────────────────────────
 
 /**
- * Per-media-type registry entry. Carries everything the merged runner needs:
+ * Per-media-type registry entry. Carries everything the merged runner needs
+ * that is independent of which drive is being scanned:
  *   - `module` walks folders and produces the catalog.
  *   - `probe` walks the same files with ffprobe (cache-aware) and produces
  *     the rich `probe.json` artifact + the probe-specific warnings.
- *   - `cachePath` persists ffprobe results across runs so re-scans are fast.
+ *
+ * Drive-dependent paths (output dir, cache file, ignore list) are derived
+ * per-run in `runType()` from the resolved root, since one media type can
+ * have several. Rules stay here because categories are a type-level concept
+ * — the same `rules/<type>.yaml` applies to every drive.
  *
  * Built lazily by per-type factory functions (`buildMoviesEntry()` etc.) so
  * `npm run movies` only loads rules for movies — a typo in
@@ -71,13 +94,7 @@ const CONFIG: AppConfig = loadConfig(SCRIPT_DIR)
  */
 interface MediaTypeEntry<TRecord, TOutput, TConfig extends BaseMediaConfig> {
   module: MediaModule<TRecord, TOutput, TConfig>
-  config: TConfig
-  outputDir: string
-  cachePath: string
   label: string
-  /** Entries loaded from ignored/<type>.yaml — silences warnings on matching
-   *  paths (optionally scoped to specific warning types via the object form). */
-  ignoredPaths: IgnoredEntry[]
   probe: (
     config: TConfig,
     cache: ProbeCache,
@@ -95,9 +112,8 @@ function makeEntry<TRecord, TOutput, TConfig extends BaseMediaConfig>(
 // Per-type factory functions
 // ─────────────────────────────────────────────
 
-// Each factory loads its own rules + ignore list + builds its module and
-// probe closure. They're only called for the media type the user actually
-// requested.
+// Each factory loads its own rules and builds its module and probe closure.
+// They're only called for the media type the user actually requested.
 //
 // To add a new type in the future:
 //   1. Create src/media/newtype.ts exporting a createNewtypeModule(rules) factory
@@ -115,11 +131,7 @@ function buildMoviesEntry() {
   })
   return makeEntry({
     module: createMoviesModule(rules),
-    config: CONFIG.movies,
-    outputDir: path.join(OUTPUT_DIR, 'movies'),
-    cachePath: path.join(CACHE_DIR, 'movies-probe.json'),
     label: 'Movies',
-    ignoredPaths: loadIgnoredPaths(SCRIPT_DIR, 'movies'),
     probe: (cfg, cache, warnings) => probeMovies(cfg, rules, cache, warnings),
   })
 }
@@ -133,11 +145,7 @@ function buildShowsEntry() {
   })
   return makeEntry({
     module: createShowsModule(rules),
-    config: CONFIG.shows,
-    outputDir: path.join(OUTPUT_DIR, 'shows'),
-    cachePath: path.join(CACHE_DIR, 'shows-probe.json'),
     label: 'Shows',
-    ignoredPaths: loadIgnoredPaths(SCRIPT_DIR, 'shows'),
     probe: (cfg, cache, warnings) => probeShows(cfg, rules, cache, warnings),
   })
 }
@@ -151,11 +159,7 @@ function buildMusicEntry() {
   })
   return makeEntry({
     module: createMusicModule(rules),
-    config: CONFIG.music,
-    outputDir: path.join(OUTPUT_DIR, 'music'),
-    cachePath: path.join(CACHE_DIR, 'music-probe.json'),
     label: 'Music',
-    ignoredPaths: loadIgnoredPaths(SCRIPT_DIR, 'music'),
     probe: (cfg, cache, warnings) => probeMusic(cfg, rules, cache, warnings),
   })
 }
@@ -169,11 +173,7 @@ function buildAudiobooksEntry() {
   })
   return makeEntry({
     module: createAudiobooksModule(rules),
-    config: CONFIG.audiobooks,
-    outputDir: path.join(OUTPUT_DIR, 'audiobooks'),
-    cachePath: path.join(CACHE_DIR, 'audiobooks-probe.json'),
     label: 'Audiobooks',
-    ignoredPaths: loadIgnoredPaths(SCRIPT_DIR, 'audiobooks'),
     probe: (cfg, cache, warnings) => probeAudiobooks(cfg, rules, cache, warnings),
   })
 }
@@ -190,62 +190,74 @@ type MediaType = (typeof VALID_TYPES)[number]
 // ─────────────────────────────────────────────
 
 /**
- * Run the merged pipeline for one media type:
+ * Run the merged pipeline for one media type against one named root:
  *   1. Probe pass — walks every primary file (cache-aware), writes probe.json
  *   2. Scan pass — walks folders, parses names, builds the catalog
  *   3. Write all three outputs — <type>.json, probe.json, warnings.json
+ *
+ * Everything drive-specific is namespaced by the root's slug, so two drives
+ * never share state:
+ *   output/<drive>/<type>/{<type>,probe,warnings}.json
+ *   cache/<drive>/<type>-probe.json
+ *   ignored/<drive>/<type>.yaml
+ *
+ * That separation matters for the cache in particular — entries are keyed by
+ * a path relative to the root, so a shared cache file would let one drive's
+ * orphan pruning delete the other drive's entries.
  *
  * The probe cache makes subsequent runs near-instant: only newly added /
  * modified / removed files trigger a real ffprobe call.
  */
 async function runType<TRecord, TOutput, TConfig extends BaseMediaConfig>(
   mediaType: MediaType,
-  entry: MediaTypeEntry<TRecord, TOutput, TConfig>
+  entry: MediaTypeEntry<TRecord, TOutput, TConfig>,
+  root: TConfig & MediaRootConfig
 ): Promise<void> {
+  const slug = driveSlug(root.name)
+  const outputDir = path.join(OUTPUT_DIR, slug, mediaType)
+  const cachePath = path.join(CACHE_DIR, slug, `${mediaType}-probe.json`)
+
   console.log(`\n${'─'.repeat(50)}`)
   console.log(`  MOASYS-Vault — ${entry.label}`)
   console.log(`  ${new Date().toLocaleString()}`)
   console.log('─'.repeat(50))
-  console.log(`\n  Root : ${entry.config.root_path}`)
+  console.log(`\n  Drive: ${root.name}`)
+  console.log(`  Root : ${root.root_path}`)
   console.log()
 
-  fs.mkdirSync(entry.outputDir, { recursive: true })
+  fs.mkdirSync(outputDir, { recursive: true })
 
   // A single WarningCollector is shared across both passes so warnings.json
   // collects everything — naming hygiene from scan, quality / ID3 issues from
-  // probe — in one file. Constructed with the type's ignored entries so any
-  // warning that matches an entry in ignored/<type>.yaml is silently dropped
-  // (still counted via warnings.silencedCount()).
-  const warnings = new WarningCollector(entry.ignoredPaths)
+  // probe — in one file. Constructed with this drive's ignored entries so any
+  // warning that matches an entry in ignored/<drive>/<type>.yaml is silently
+  // dropped (still counted via warnings.silencedCount()).
+  const warnings = new WarningCollector(loadIgnoredPaths(SCRIPT_DIR, slug, mediaType))
 
   // ── Probe pass ────────────────────────────────────────────────────────
-  const cache = new ProbeCache(entry.cachePath)
-  console.log(`    [CACHE] ${cache.size()} entries loaded from ${entry.cachePath}`)
+  const cache = new ProbeCache(cachePath)
+  console.log(`    [CACHE] ${cache.size()} entries loaded from ${cachePath}`)
 
-  const { output: probeOutput, byPath: probeByPath } = await entry.probe(
-    entry.config,
-    cache,
-    warnings
-  )
+  const { output: probeOutput, byPath: probeByPath } = await entry.probe(root, cache, warnings)
 
   // ── Scan pass ─────────────────────────────────────────────────────────
   // Scan reuses the probe results via `probeByPath` so each version's
   // `quality` is populated alongside the structural catalog work.
-  const records = scan(entry.config, entry.module, warnings, probeByPath)
+  const records = scan(root, entry.module, warnings, probeByPath)
 
   // ── Write outputs ─────────────────────────────────────────────────────
   console.log('\n  Writing output...')
-  writeJson(records, entry.module, path.join(entry.outputDir, `${mediaType}.json`))
-  writeJsonOutput(path.join(entry.outputDir, 'probe.json'), probeOutput)
-  writeWarnings(path.join(entry.outputDir, 'warnings.json'), warnings)
+  writeJson(records, entry.module, path.join(outputDir, `${mediaType}.json`))
+  writeJsonOutput(path.join(outputDir, 'probe.json'), probeOutput)
+  writeWarnings(path.join(outputDir, 'warnings.json'), warnings)
 
   // Drop cache entries whose files no longer exist under root_path. Keeps
-  // cache/<type>-probe.json from growing without bound as files are
+  // cache/<drive>/<type>-probe.json from growing without bound as files are
   // renamed or deleted from the library.
-  const orphans = cache.pruneOrphans(entry.config.root_path)
+  const orphans = cache.pruneOrphans(root.root_path)
   cache.save()
   const orphanSummary = orphans > 0 ? ` (pruned ${orphans} orphan${orphans === 1 ? '' : 's'})` : ''
-  console.log(`    [CACHE] ${cache.size()} entries saved to ${entry.cachePath}${orphanSummary}`)
+  console.log(`    [CACHE] ${cache.size()} entries saved to ${cachePath}${orphanSummary}`)
 
   const silenced = warnings.silencedCount()
   const silencedSummary = silenced > 0 ? `, ${silenced} silenced via ignore list` : ''
@@ -256,7 +268,7 @@ async function runType<TRecord, TOutput, TConfig extends BaseMediaConfig>(
       .map(({ type, count }) => `${type} (${count})`)
       .join(', ')
     console.log(`    ${breakdown}`)
-    console.log(`  → Review output/${mediaType}/warnings.json for files needing attention.`)
+    console.log(`  → Review output/${slug}/${mediaType}/warnings.json for files needing attention.`)
   }
 }
 
@@ -264,20 +276,44 @@ async function runType<TRecord, TOutput, TConfig extends BaseMediaConfig>(
 // CLI
 // ─────────────────────────────────────────────
 
-async function dispatchType(mediaType: MediaType): Promise<void> {
-  // Each branch builds its own entry — rules, module, probe, ignored list
-  // — only when that type is actually about to run. `scan:all` calls this
-  // four times sequentially, each time loading only what it needs for that
-  // type.
+/**
+ * Resolve which root to scan, then run it.
+ *
+ * When the requested drive isn't configured for this type, `--all` skips it
+ * with a note while a single-type run treats it as an error — `scan:all
+ * external` shouldn't die just because music lives on one drive, but
+ * `npm run music external` is a typo worth surfacing.
+ */
+async function dispatchType(
+  mediaType: MediaType,
+  driveName: string | undefined,
+  acrossAllTypes: boolean
+): Promise<void> {
+  const roots = CONFIG[mediaType]
+  const root = resolveRoot(roots, driveName)
+
+  if (!root) {
+    const message = `no root named '${driveName}' configured for ${mediaType} (have: ${rootNames(roots)})`
+    if (acrossAllTypes) {
+      console.log(`\n  [SKIP] ${mediaType} — ${message}`)
+      return
+    }
+    console.error(`\n  Error: ${message}`)
+    process.exit(1)
+  }
+
+  // Each branch builds its own entry — rules, module, probe — only when that
+  // type is actually about to run. `scan:all` calls this four times
+  // sequentially, each time loading only what it needs for that type.
   switch (mediaType) {
     case 'movies':
-      return runType(mediaType, buildMoviesEntry())
+      return runType(mediaType, buildMoviesEntry(), root)
     case 'shows':
-      return runType(mediaType, buildShowsEntry())
+      return runType(mediaType, buildShowsEntry(), root)
     case 'music':
-      return runType(mediaType, buildMusicEntry())
+      return runType(mediaType, buildMusicEntry(), root)
     case 'audiobooks':
-      return runType(mediaType, buildAudiobooksEntry())
+      return runType(mediaType, buildAudiobooksEntry(), root)
   }
 }
 
@@ -289,9 +325,9 @@ async function main(): Promise<void> {
     // Implicit help (no args) exits with status 1; explicit `--help` is clean.
     process.exit(parsed.explicit ? 0 : 1)
   } else if (parsed.kind === 'all') {
-    for (const t of VALID_TYPES) await dispatchType(t)
+    for (const t of VALID_TYPES) await dispatchType(t, parsed.drive, true)
   } else {
-    await dispatchType(parsed.type as MediaType)
+    await dispatchType(parsed.type as MediaType, parsed.drive, false)
   }
 
   console.log()
@@ -306,14 +342,21 @@ function printHelp(): void {
   warnings.json (all hygiene issues). The probe cache makes re-runs fast.
 
   Usage:
-    npm run <type>       Run the merged pipeline for one media type
-    npm run scan:all     Run the merged pipeline for all media types
+    npm run <type> [drive]     Run the merged pipeline for one media type
+    npm run scan:all [drive]   Run the merged pipeline for all media types
 
   Types: ${VALID_TYPES.join(', ')}
 
+  [drive] names a root from config.json. Omit it to use the first root
+  configured for that type. Output goes to output/<drive>/<type>/, the probe
+  cache to cache/<drive>/, and the ignore list is read from
+  ignored/<drive>/<type>.yaml.
+
   Examples:
-    npm run movies
+    npm run movies              # first configured movies root
+    npm run movies external     # the root named "External"
     npm run scan:all
+    npm run scan:all external   # every type that has an "External" root
   `)
 }
 

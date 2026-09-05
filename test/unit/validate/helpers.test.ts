@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 
-import { stripFilenameIllegalChars, normalizeTitle, parseYear } from '../../../src/validate/helpers'
+import {
+  stripFilenameIllegalChars,
+  normalizeTitle,
+  normalizeTitleLoose,
+  parseYear,
+} from '../../../src/validate/helpers'
 
 describe('stripFilenameIllegalChars', () => {
   it('strips Windows-illegal characters without replacement', () => {
@@ -48,6 +53,67 @@ describe('normalizeTitle', () => {
 
   it('handles empty input', () => {
     expect(normalizeTitle('')).toBe('')
+  })
+})
+
+describe('normalizeTitleLoose', () => {
+  it('treats " - " as equivalent to a subtitle colon', () => {
+    expect(normalizeTitleLoose('Ghostbusters - Afterlife')).toBe(
+      normalizeTitleLoose('Ghostbusters: Afterlife')
+    )
+    expect(normalizeTitleLoose('Godzilla - King of the Monsters')).toBe(
+      normalizeTitleLoose('Godzilla: King of the Monsters')
+    )
+  })
+
+  it('treats & and "and" as equivalent', () => {
+    expect(normalizeTitleLoose('Pain And Gain')).toBe(normalizeTitleLoose('Pain & Gain'))
+    expect(normalizeTitleLoose('Iliza Shlesinger - Over & Over')).toBe(
+      normalizeTitleLoose('Iliza Shlesinger: Over & Over')
+    )
+  })
+
+  it('ignores incidental punctuation', () => {
+    expect(normalizeTitleLoose('Good Morning Vietnam')).toBe(
+      normalizeTitleLoose('Good Morning, Vietnam')
+    )
+    expect(normalizeTitleLoose('Whitney Cummings - Can I Touch It')).toBe(
+      normalizeTitleLoose('Whitney Cummings: Can I Touch It?')
+    )
+  })
+
+  it('leaves hyphenated words alone (only " - " between words collapses)', () => {
+    expect(normalizeTitleLoose('Spider-Man')).toBe('spider-man')
+    expect(normalizeTitleLoose('Spider-Man')).not.toBe(normalizeTitleLoose('Spider Man'))
+  })
+
+  it('does NOT bridge Face/Off — that is the strict tier’s job', () => {
+    // The loose tier turns "/" into a separator, so it sees "face off". Only
+    // the strict tier (which deletes the slash) matches the folder "FaceOff".
+    expect(normalizeTitleLoose('Face/Off')).toBe('face off')
+    expect(normalizeTitleLoose('Face/Off')).not.toBe(normalizeTitleLoose('FaceOff'))
+    expect(normalizeTitle('Face/Off')).toBe(normalizeTitle('FaceOff'))
+  })
+
+  it('still separates genuinely different titles', () => {
+    // "H2o" vs "H20" is a real typo in the folder name, not a rendering choice.
+    expect(normalizeTitleLoose('Halloween H2o - 20 Years Later')).not.toBe(
+      normalizeTitleLoose('Halloween H20: 20 Years Later')
+    )
+    expect(normalizeTitleLoose('Gone In 60 Seconds')).not.toBe(
+      normalizeTitleLoose('Gone in Sixty Seconds')
+    )
+  })
+
+  it('keeps diacritics and apostrophes (legal in filenames, so a real divergence)', () => {
+    expect(normalizeTitleLoose('Amelie')).not.toBe(normalizeTitleLoose('Amélie'))
+    expect(normalizeTitleLoose("Freddy's Dead - The Final Nightmare")).toBe(
+      "freddy's dead the final nightmare"
+    )
+  })
+
+  it('handles empty input', () => {
+    expect(normalizeTitleLoose('')).toBe('')
   })
 })
 
